@@ -113,6 +113,9 @@ def alaska_weighted_auc(y_true, y_valid):
         mask = (y_min < tpr) & (tpr < y_max)
         # pdb.set_trace()
 
+        if not len(fpr[mask]):
+            return 0
+
         x_padding = np.linspace(fpr[mask][-1], 1, 100)
 
         x = np.concatenate([fpr[mask], x_padding])
@@ -186,6 +189,14 @@ class Fitter:
         self.model = model
         self.device = device
 
+        self.optimizer = None
+        self.scheduler = None
+        self.criterion = None
+
+        self.log(f'Fitter prepared. Device is {self.device}')
+        self._configure_fitter()
+
+    def _configure_fitter(self):
         param_optimizer = list(self.model.named_parameters())
         no_decay = ['bias', 'LayerNorm.bias', 'LayerNorm.weight']
         optimizer_grouped_parameters = [
@@ -193,12 +204,13 @@ class Fitter:
             {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay)], 'weight_decay': 0.0}
         ]
 
-        self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=config.lr)
-        self.scheduler = config.SchedulerClass(self.optimizer, **config.scheduler_params)
+        self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.config.lr)
+        self.scheduler = self.config.SchedulerClass(self.optimizer, **self.config.scheduler_params)
         self.criterion = LabelSmoothing().to(self.device)
-        self.log(f'Fitter prepared. Device is {self.device}')
+        return self
 
     def fit(self, train_loader, validation_loader):
+
         for e in range(self.config.n_epochs):
             if self.config.verbose:
                 lr = self.optimizer.param_groups[0]['lr']
@@ -295,14 +307,25 @@ class Fitter:
             'best_summary_loss': self.best_summary_loss,
             'epoch': self.epoch,
         }, path)
+        return self
 
     def load(self, path):
         checkpoint = torch.load(path)
         self.model.load_state_dict(checkpoint['model_state_dict'])
+        self.model.cuda()
+
+        self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.config.lr)
         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+
+        self.scheduler = self.config.SchedulerClass(self.optimizer, **self.config.scheduler_params)
         self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+
+        self.criterion = LabelSmoothing().to(self.device)
+
         self.best_summary_loss = checkpoint['best_summary_loss']
         self.epoch = checkpoint['epoch'] + 1
+        # self._configure_fitter()
+        return self
 
     def log(self, message):
         if self.config.verbose:
@@ -338,7 +361,7 @@ class DatasetSubmissionRetriever(Dataset):
 class TrainGlobalConfig:
     num_workers = 4
     batch_size = 12 # 16
-    n_epochs = 25
+    n_epochs = 5
     lr = 0.001
 
     # -------------------
@@ -348,30 +371,30 @@ class TrainGlobalConfig:
 
     # --------------------
     step_scheduler = False  # do scheduler.step after optimizer.step
-    validation_scheduler = True  # do scheduler.step after validation stage loss
-
-    #     SchedulerClass = torch.optim.lr_scheduler.OneCycleLR
-    #     scheduler_params = dict(
-    #         max_lr=0.001,
-    #         epochs=n_epochs,
-    #         steps_per_epoch=int(len(train_dataset) / batch_size),
-    #         pct_start=0.1,
-    #         anneal_strategy='cos',
-    #         final_div_factor=10**5
-    #     )
-
-    SchedulerClass = torch.optim.lr_scheduler.ReduceLROnPlateau
+    validation_scheduler = False
+    SchedulerClass = torch.optim.lr_scheduler.OneCycleLR
     scheduler_params = dict(
-        mode='min',
-        factor=0.5,
-        patience=1,
-        verbose=False,
-        threshold=0.0001,
-        threshold_mode='abs',
-        cooldown=0,
-        min_lr=1e-8,
-        eps=1e-08
+    max_lr=0.001,
+    epochs=n_epochs,
+    steps_per_epoch=20000, # int(len(train_dataset) / batch_size),
+    pct_start=0.1,
+    anneal_strategy='cos',
+    final_div_factor=10**5
     )
+
+     # validation_scheduler = True  # do scheduler.step after validation stage loss
+#    SchedulerClass = torch.optim.lr_scheduler.ReduceLROnPlateau
+#    scheduler_params = dict(
+#        mode='min',
+#        factor=0.5,
+#        patience=1,
+#        verbose=False,
+#        threshold=0.0001,
+#        threshold_mode='abs',
+#        cooldown=0,
+#        min_lr=1e-8,
+#        eps=1e-08
+#    )
     # --------------------
 
 
@@ -403,12 +426,21 @@ def main():
     train_transforms = A.Compose([
         A.HorizontalFlip(p=0.5),
         A.VerticalFlip(p=0.5),
+        # A.Resize(height=224, width=224, p=1.0),
+        # A.Normalize(always_apply=True),
+        # A.RandomGridShuffle(grid=(3, 3), always_apply=False, p=0.5),
+        # A.Transpose(always_apply=False, p=0.5),
+        # A.RandomRotate90(always_apply=False, p=0.5),
+        # A.InvertImg(always_apply=False, p=0.5),
+        # A.ImageCompression(quality_lower=75, quality_upper=75, always_apply=False, p = 0.5),
         A.Resize(height=512, width=512, p=1.0),
         ToTensorV2(p=1.0),
     ], p=1.0)
 
     valid_transforms = A.Compose([
+        # A.Resize(height=224, width=224, p=1.0),
         A.Resize(height=512, width=512, p=1.0),
+        # A.Normalize(always_apply=True),
         ToTensorV2(p=1.0),
     ], p=1.0)
 
@@ -429,10 +461,19 @@ def main():
     # create net
     net = EfficientNet.from_pretrained('efficientnet-b2')
     net._fc = nn.Linear(in_features=1408, out_features=4, bias=True)
-    net = net.cuda()
 
+    checkpoint = torch.load("./best-checkpoint-033epoch.bin")
+    # net.load_state_dict(checkpoint['model_state_dict'])
+
+    # import torchvision.models as models
+    # net = models.vgg19(pretrained=True)
+    # net.classifier._modules['6'] = nn.Linear(in_features=4096, out_features=4, bias=True)
+
+    # net = net.cuda()
+
+    device = torch.device('cuda:0')
+    # if False:
     if True:  # training
-        device = torch.device('cuda:0')
 
         train_loader = torch.utils.data.DataLoader(
             train_dataset,
@@ -451,9 +492,21 @@ def main():
             pin_memory=False,
         )
 
-        fitter = Fitter(model=net, device=device, config=TrainGlobalConfig)
-        #     fitter.load(f'{fitter.base_dir}/last-checkpoint.bin')
+        fitter = Fitter(model=net.cuda(), device=device, config=TrainGlobalConfig)
+        #
+        # fitter.load(f'{fitter.base_dir}/best-checkpoint-033epoch.bin')
+        # fitter.load(f'{fitter.base_dir}/best-checkpoint-024epoch.bin')
+        # fitter = Fitter(model=fitter.model.cuda(), device=device, config=TrainGlobalConfig)
+        #
         fitter.fit(train_loader, val_loader)
+
+    net = net.cuda()
+    net.eval()
+    # fitter = Fitter(model=net, device=device, config=TrainGlobalConfig)
+    #
+    # fitter.load(f'{fitter.base_dir}/best-checkpoint-024epoch.bin')
+    # fitter = Fitter(model=fitter.model.cuda(), device=device, config=TrainGlobalConfig)
+    # net = fitter.model
 
     # TEST
     dataset = DatasetSubmissionRetriever(
