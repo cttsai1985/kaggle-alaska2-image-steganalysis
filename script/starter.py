@@ -4,6 +4,8 @@ import time
 import warnings
 from datetime import datetime
 from glob import glob
+from typing import List, Optional, Callable
+
 import albumentations as A
 import cv2
 import numpy as np
@@ -33,46 +35,36 @@ def seed_everything(seed: int = 42):
     return
 
 
-DATA_ROOT_PATH = '../input/alaska2-image-steganalysis'
+# competition metrics
+def alaska_weighted_auc(
+        y_true: np.array, y_valid: np.array, tpr_thresholds: List[float] = [0.0, 0.4, 1.0],
+        weights: List[float] = [2, 1]):
+    """
+    https://www.kaggle.com/anokas/weighted-auc-metric-updated
+    """
+    # size of subsets
+    areas = np.array(tpr_thresholds[1:]) - np.array(tpr_thresholds[:-1])
 
+    # The total area is normalized by the sum of weights such that the final weighted AUC is between 0 and 1.
+    normalization = np.dot(areas, weights)
 
-def onehot(size, target):
-    vec = torch.zeros(size, dtype=torch.float32)
-    vec[target] = 1.
-    return vec
+    def compute_submetrics(y_min: float, y_max: float, fpr_arr: np.array, tpr_arr: np.array) -> float:
+        mask = (y_min < tpr_arr) & (tpr_arr < y_max)
+        x_padding = np.linspace(fpr_arr[mask][-1], 1, 100)
 
+        x = np.concatenate([fpr_arr[mask], x_padding])
+        y = np.concatenate([tpr_arr[mask], [y_max] * len(x_padding)])
+        return metrics.auc(x, y - y_min)  # normalize such that curve starts at y=0
 
-class DatasetRetriever(Dataset):
-
-    def __init__(self, kinds, image_names, labels, transforms=None):
-        super().__init__()
-        self.kinds = kinds
-        self.image_names = image_names
-        self.labels = labels
-        self.transforms = transforms
-
-    def __getitem__(self, index: int):
-        kind, image_name, label = self.kinds[index], self.image_names[index], self.labels[index]
-        image = cv2.imread(f'{DATA_ROOT_PATH}/{kind}/{image_name}', cv2.IMREAD_COLOR)
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB).astype(np.float32)
-        image /= 255.0
-        if self.transforms:
-            sample = {'image': image}
-            sample = self.transforms(**sample)
-            image = sample['image']
-
-        target = onehot(4, label)
-        return image, target
-
-    def __len__(self) -> int:
-        return self.image_names.shape[0]
-
-    def get_labels(self):
-        return list(self.labels)
+    fpr, tpr, thresholds = metrics.roc_curve(y_true, y_valid, pos_label=1)
+    submetrics = [compute_submetrics(
+        y_min=a, y_max=b, fpr_arr=fpr, tpr_arr=tpr) for a, b in zip(tpr_thresholds[:-1], tpr_thresholds[1:])]
+    competition_metric = (np.array(submetrics) * weights).sum() / normalization
+    return competition_metric
 
 
 # Metrics
-class AverageMeter(object):
+class AverageMeter:
     """Computes and stores the average and current value"""
 
     def __init__(self):
@@ -91,45 +83,7 @@ class AverageMeter(object):
         self.avg = self.sum / self.count
 
 
-def alaska_weighted_auc(y_true, y_valid):
-    """
-    https://www.kaggle.com/anokas/weighted-auc-metric-updated
-    """
-    tpr_thresholds = [0.0, 0.4, 1.0]
-    weights = [2, 1]
-
-    fpr, tpr, thresholds = metrics.roc_curve(y_true, y_valid, pos_label=1)
-
-    # size of subsets
-    areas = np.array(tpr_thresholds[1:]) - np.array(tpr_thresholds[:-1])
-
-    # The total area is normalized by the sum of weights such that the final weighted AUC is between 0 and 1.
-    normalization = np.dot(areas, weights)
-
-    competition_metric = 0
-    for idx, weight in enumerate(weights):
-        y_min = tpr_thresholds[idx]
-        y_max = tpr_thresholds[idx + 1]
-        mask = (y_min < tpr) & (tpr < y_max)
-        # pdb.set_trace()
-
-        if not len(fpr[mask]):
-            return 0
-
-        x_padding = np.linspace(fpr[mask][-1], 1, 100)
-
-        x = np.concatenate([fpr[mask], x_padding])
-        y = np.concatenate([tpr[mask], [y_max] * len(x_padding)])
-        y = y - y_min  # normalize such that curve starts at y=0
-        score = metrics.auc(x, y)
-        submetric = score * weight
-        best_subscore = (y_max - y_min) * weight
-        competition_metric += submetric
-
-    return competition_metric / normalization
-
-
-class RocAucMeter(object):
+class RocAucMeter:
     def __init__(self):
         self.reset()
 
@@ -152,27 +106,21 @@ class RocAucMeter(object):
 
 # Label Smoothing
 class LabelSmoothing(nn.Module):
-    def __init__(self, smoothing=0.05):
-        super(LabelSmoothing, self).__init__()
-        self.confidence = 1.0 - smoothing
-        self.smoothing = smoothing
+    def __init__(self, smoothing: float = 0.05):
+        super().__init__()
+        self.confidence: float = 1.0 - smoothing
+        self.smoothing: float = smoothing
 
     def forward(self, x, target):
-        if self.training:
-            x = x.float()
-            target = target.float()
-            logprobs = torch.nn.functional.log_softmax(x, dim=-1)
-
-            nll_loss = -logprobs * target
-            nll_loss = nll_loss.sum(-1)
-
-            smooth_loss = -logprobs.mean(dim=-1)
-
-            loss = self.confidence * nll_loss + self.smoothing * smooth_loss
-
-            return loss.mean()
-        else:
+        if not self.training:
             return torch.nn.functional.cross_entropy(x, target)
+
+        x = x.float()
+        target = target.float()
+        log_probs = torch.nn.functional.log_softmax(x, dim=-1)
+        nll_loss = (log_probs * target).sum(-1)
+        smooth_loss = log_probs.mean(dim=-1)
+        return -(self.confidence * nll_loss + self.smoothing * smooth_loss).mean()
 
 
 # Fitter
@@ -334,18 +282,19 @@ class Fitter:
             logger.write(f'{message}\n')
 
 
-class DatasetSubmissionRetriever(Dataset):
-
-    def __init__(self, image_names, transforms=None):
+class _BaseRetriever(Dataset):
+    def __init__(self, image_names: List[str], transforms: Optional[Callable] = None):
         super().__init__()
-        self.image_names = image_names
-        self.transforms = transforms
+        self.image_names: List[str] = image_names
+        self.transforms: Optional[Callable] = transforms
 
-    def __getitem__(self, index: int):
+    def _load_one_image(self, index: int):
         image_name = self.image_names[index]
-        image = cv2.imread(f'{DATA_ROOT_PATH}/Test/{image_name}', cv2.IMREAD_COLOR)
+        if not os.path.exists(image_name):
+            raise ValueError(f"file image does not exist: {image_name}")
+
+        image = cv2.imread(image_name, cv2.IMREAD_COLOR)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB).astype(np.float32)
-        image /= 255.0
         if self.transforms:
             sample = {'image': image}
             sample = self.transforms(**sample)
@@ -354,180 +303,242 @@ class DatasetSubmissionRetriever(Dataset):
         return image_name, image
 
     def __len__(self) -> int:
-        return self.image_names.shape[0]
+        return len(self.image_names)
+
+
+def onehot_target(size: int, target: int):
+    vec = torch.zeros(size, dtype=torch.float32)
+    vec[target] = 1.
+    return vec
+
+
+class DatasetRetriever(_BaseRetriever):
+
+    def __init__(self, image_names: List[str], labels: List[str], transforms: Optional[Callable] = None):
+        super().__init__(image_names=image_names, transforms=transforms)
+        self.labels: List[str] = labels
+        self.nr_class: int = len(set(labels))
+
+    def __getitem__(self, index: int):
+        image_name, image = self._load_one_image(index=index)
+        return image, onehot_target(self.nr_class, self.labels[index])
+
+    def get_labels(self):
+        return self.labels
+
+
+class SubmissionRetriever(_BaseRetriever):
+    def __init__(self, image_names: List[str], transforms: Optional[Callable] = None):
+        super().__init__(image_names=image_names, transforms=transforms)
+
+    def __getitem__(self, index: int):
+        image_name, image = self._load_one_image(index=index)
+        return os.path.basename(image_name), image
 
 
 # Config
-class TrainGlobalConfig:
-    num_workers = 4
-    batch_size = 12 # 16
-    n_epochs = 5
-    lr = 0.001
+class TrainReduceOnPlateauConfigs:
+    num_workers: int = 8
+    batch_size: int = 12  # 16
 
     # -------------------
-    verbose = True
-    verbose_step = 1
+    verbose: bool = True
+    verbose_step: int = 1
     # -------------------
+
+    n_epochs: int = 5
+    lr: float = 0.001
 
     # --------------------
-    step_scheduler = False  # do scheduler.step after optimizer.step
-    validation_scheduler = False
+    validation_scheduler = True  # do scheduler.step after validation stage loss
+    SchedulerClass = torch.optim.lr_scheduler.ReduceLROnPlateau
+    scheduler_params = dict(
+        mode='min',
+        factor=0.5,
+        patience=1,
+        verbose=False,
+        threshold=0.0001,
+        threshold_mode='abs',
+        cooldown=0,
+        min_lr=1e-8,
+        eps=1e-08
+    )
+    # --------------------
+
+    # Augmentations
+    # --------------------
+    transforms = A.Compose([
+        A.HorizontalFlip(p=0.5),
+        A.VerticalFlip(p=0.5),
+        A.RandomRotate90(always_apply=False, p=0.5),
+        # A.RandomGridShuffle(grid=(3, 3), always_apply=False, p=0.5),
+        # A.InvertImg(always_apply=False, p=0.5),
+        A.Resize(height=512, width=512, p=1.0),
+        A.Normalize(always_apply=True),
+        ToTensorV2(p=1.0),
+    ], p=1.0)
+
+
+class TrainOneCycleConfigs:
+    num_workers: int = 8
+    batch_size: int = 14  # 16
+
+    # -------------------
+    verbose: bool = True
+    verbose_step: int = 1
+    # -------------------
+
+    n_epochs: int = 10
+    lr: float = 0.001
+
+    # --------------------
+    step_scheduler: bool = False  # do scheduler.step after optimizer.step
+    validation_scheduler: bool = False
     SchedulerClass = torch.optim.lr_scheduler.OneCycleLR
     scheduler_params = dict(
-    max_lr=0.001,
-    epochs=n_epochs,
-    steps_per_epoch=20000, # int(len(train_dataset) / batch_size),
-    pct_start=0.1,
-    anneal_strategy='cos',
-    final_div_factor=10**5
+        max_lr=0.001,
+        epochs=n_epochs,
+        steps_per_epoch=20000,  # int(len(train_dataset) / batch_size),
+        pct_start=0.1,
+        anneal_strategy='cos',
+        final_div_factor=10 ** 5
     )
-
-     # validation_scheduler = True  # do scheduler.step after validation stage loss
-#    SchedulerClass = torch.optim.lr_scheduler.ReduceLROnPlateau
-#    scheduler_params = dict(
-#        mode='min',
-#        factor=0.5,
-#        patience=1,
-#        verbose=False,
-#        threshold=0.0001,
-#        threshold_mode='abs',
-#        cooldown=0,
-#        min_lr=1e-8,
-#        eps=1e-08
-#    )
     # --------------------
+
+    # Augmentations
+    # --------------------
+    transforms = A.Compose([
+        A.HorizontalFlip(p=0.5),
+        A.VerticalFlip(p=0.5),
+        A.RandomRotate90(always_apply=False, p=0.5),
+        # A.RandomGridShuffle(grid=(3, 3), always_apply=False, p=0.5),
+        A.InvertImg(always_apply=False, p=0.5),
+        A.Resize(height=512, width=512, p=1.0),
+        A.Normalize(always_apply=True),
+        ToTensorV2(p=1.0),
+    ], p=1.0)
+
+
+class ValidConfigs:
+    num_workers: int = 8
+    batch_size: int = 12  # 16
+
+    transforms: A.Compose = A.Compose([
+        A.Resize(height=512, width=512, p=1.0),
+        A.Normalize(always_apply=True),
+        ToTensorV2(p=1.0),
+    ], p=1.0)
+
+
+class TestConfigs:
+    num_workers = 8
+    batch_size = 12  # 16
+
+    transforms: A.Compose = A.Compose([
+        A.Resize(height=512, width=512, p=1.0),
+        A.Normalize(always_apply=True),
+        ToTensorV2(p=1.0),
+    ], p=1.0)
+
+
+def inference(dataset: Dataset, configs, model: nn.Module) -> pd.DataFrame:
+    data_loader = DataLoader(
+        dataset, batch_size=configs.batch_size, shuffle=False, num_workers=configs.num_workers, drop_last=False, )
+
+    model.eval()
+    result = {'Id': [], 'Label': []}
+    total_num_batch: int = int(len(dataset) / configs.batch_size)
+    for step, (image_names, images) in enumerate(data_loader):
+        print(f"Test Batch: {step:03d} / {total_num_batch:d}, {100. * step/total_num_batch: .02f}", end='\r')
+
+        y_pred = model(images.cuda())
+        y_pred = 1. - nn.functional.softmax(y_pred, dim=1).data.cpu().numpy()[:, 0]
+
+        result['Id'].extend(image_names)
+        result['Label'].extend(y_pred)
+
+    submission = pd.DataFrame(result).sort_values("Id").set_index("Id")
+    print(f"Finish Test: {submission.shape}: \n{submission.descirbe().T}")
+    return submission
 
 
 def main():
     seed_everything()
 
-    dataset = []
-    for label, kind in enumerate(['Cover', 'JMiPOD', 'JUNIWARD', 'UERD']):
-        for path in glob('../input/alaska2-image-steganalysis/Cover/*.jpg'):
-            dataset.append({
-                'kind': kind,
-                'image_name': path.split('/')[-1],
-                'label': label
-            })
+    working_dir: str = "../input/alaska2-image-steganalysis/"
+    test_dir: str = "Test"
 
-    random.shuffle(dataset)
-    dataset = pd.DataFrame(dataset)
-
-    gkf = GroupKFold(n_splits=5)
-
-    dataset.loc[:, 'fold'] = 0
-    for fold_number, (train_index, val_index) in enumerate(
-            gkf.split(X=dataset.index, y=dataset['label'], groups=dataset['image_name'])):
-        dataset.loc[dataset.iloc[val_index].index, 'fold'] = fold_number
-
-    fold_number = 0
-
-    # Simple Augs: Flips
-    train_transforms = A.Compose([
-        A.HorizontalFlip(p=0.5),
-        A.VerticalFlip(p=0.5),
-        # A.Resize(height=224, width=224, p=1.0),
-        # A.Normalize(always_apply=True),
-        # A.RandomGridShuffle(grid=(3, 3), always_apply=False, p=0.5),
-        # A.Transpose(always_apply=False, p=0.5),
-        # A.RandomRotate90(always_apply=False, p=0.5),
-        # A.InvertImg(always_apply=False, p=0.5),
-        # A.ImageCompression(quality_lower=75, quality_upper=75, always_apply=False, p = 0.5),
-        A.Resize(height=512, width=512, p=1.0),
-        ToTensorV2(p=1.0),
-    ], p=1.0)
-
-    valid_transforms = A.Compose([
-        # A.Resize(height=224, width=224, p=1.0),
-        A.Resize(height=512, width=512, p=1.0),
-        # A.Normalize(always_apply=True),
-        ToTensorV2(p=1.0),
-    ], p=1.0)
-
-    train_dataset = DatasetRetriever(
-        kinds=dataset[dataset['fold'] != fold_number].kind.values,
-        image_names=dataset[dataset['fold'] != fold_number].image_name.values,
-        labels=dataset[dataset['fold'] != fold_number].label.values,
-        transforms=train_transforms,
-    )
-
-    validation_dataset = DatasetRetriever(
-        kinds=dataset[dataset['fold'] == fold_number].kind.values,
-        image_names=dataset[dataset['fold'] == fold_number].image_name.values,
-        labels=dataset[dataset['fold'] == fold_number].label.values,
-        transforms=valid_transforms,
-    )
+    labels: List[str] = ['Cover', 'JMiPOD', 'JUNIWARD', 'UERD']
+    label_map = {kind: label for label, kind in enumerate(labels)}
+    training_images: List[str] = list(
+        filter(lambda x: test_dir != os.path.split(os.path.dirname(x))[-1],
+               glob(os.path.join(working_dir, "*", "*.jpg"))))
+    df_train = pd.DataFrame({"file_path": training_images})
+    df_train["image"] = df_train["file_path"].apply(lambda x: os.path.basename(x))
+    df_train["algo"] = df_train["file_path"].apply(lambda x: os.path.split(os.path.dirname(x))[-1])
+    df_train["label"] = df_train["algo"].map(label_map).astype(np.int32)
+    print(f"{df_train.nunique()}")
 
     # create net
     net = EfficientNet.from_pretrained('efficientnet-b2')
     net._fc = nn.Linear(in_features=1408, out_features=4, bias=True)
 
-    checkpoint = torch.load("./best-checkpoint-033epoch.bin")
+    # checkpoint = torch.load("./best-checkpoint-033epoch.bin")
     # net.load_state_dict(checkpoint['model_state_dict'])
 
-    # import torchvision.models as models
-    # net = models.vgg19(pretrained=True)
-    # net.classifier._modules['6'] = nn.Linear(in_features=4096, out_features=4, bias=True)
-
-    # net = net.cuda()
-
+    model = net.cuda()
     device = torch.device('cuda:0')
+
     # if False:
     if True:  # training
+        training_configs = TrainOneCycleConfigs
+        validation_configs = ValidConfigs
 
+        gkf = GroupKFold(n_splits=5)
+        for train_index, vallid_index in gkf.split(X=df_train["label"], y=df_train["label"], groups=df_train["image"]):
+            break
+
+        train_df = df_train.iloc[train_index]
+        valid_df = df_train.iloc[vallid_index]
+
+        train_dataset = DatasetRetriever(
+            image_names=train_df["file_path"].tolist(), labels=train_df["label"].tolist(),
+            transforms=training_configs.transforms)
         train_loader = torch.utils.data.DataLoader(
             train_dataset,
             sampler=BalanceClassSampler(labels=train_dataset.get_labels(), mode="downsampling"),
-            batch_size=TrainGlobalConfig.batch_size,
+            batch_size=training_configs.batch_size,
             pin_memory=False,
             drop_last=True,
-            num_workers=TrainGlobalConfig.num_workers,
+            num_workers=training_configs.num_workers,
         )
+
+        validation_dataset = DatasetRetriever(
+            image_names=valid_df["file_path"].tolist(), labels=valid_df["label"].tolist(),
+            transforms=training_configs.transforms)
         val_loader = torch.utils.data.DataLoader(
             validation_dataset,
-            batch_size=TrainGlobalConfig.batch_size,
-            num_workers=TrainGlobalConfig.num_workers,
+            batch_size=validation_configs.batch_size,
+            num_workers=validation_configs.num_workers,
             shuffle=False,
             sampler=SequentialSampler(validation_dataset),
             pin_memory=False,
         )
 
-        fitter = Fitter(model=net.cuda(), device=device, config=TrainGlobalConfig)
-        #
-        # fitter.load(f'{fitter.base_dir}/best-checkpoint-033epoch.bin')
+        fitter = Fitter(model=model, device=device, config=training_configs)
         # fitter.load(f'{fitter.base_dir}/best-checkpoint-024epoch.bin')
-        # fitter = Fitter(model=fitter.model.cuda(), device=device, config=TrainGlobalConfig)
-        #
         fitter.fit(train_loader, val_loader)
 
-    net = net.cuda()
-    net.eval()
-    # fitter = Fitter(model=net, device=device, config=TrainGlobalConfig)
-    #
-    # fitter.load(f'{fitter.base_dir}/best-checkpoint-024epoch.bin')
-    # fitter = Fitter(model=fitter.model.cuda(), device=device, config=TrainGlobalConfig)
-    # net = fitter.model
-
-    # TEST
-    dataset = DatasetSubmissionRetriever(
-        image_names=np.array([path.split('/')[-1] for path in glob('../input/alaska2-image-steganalysis/Test/*.jpg')]),
-        transforms=valid_transforms,
+    # Test
+    dataset = SubmissionRetriever(
+        image_names=glob(os.path.join(working_dir, test_dir, "*.jpg")),
+        transforms=TestConfigs.transforms,
     )
-    data_loader = DataLoader(dataset, batch_size=8, shuffle=False, num_workers=2, drop_last=False, )
-    result = {'Id': [], 'Label': []}
-    for step, (image_names, images) in enumerate(data_loader):
-        print(step, end='\r')
 
-        y_pred = net(images.cuda())
-        y_pred = 1 - nn.functional.softmax(y_pred, dim=1).data.cpu().numpy()[:, 0]
-
-        result['Id'].extend(image_names)
-        result['Label'].extend(y_pred)
-
-    # TEST
-    submission = pd.DataFrame(result)
-    submission.to_csv('submission.csv', index=False)
-    submission.head()
+    submission = inference(dataset=dataset, configs=TestConfigs, model=model)
+    submission.to_csv('submission.csv', index=True)
+    print(submission.head())
+    return
 
 
 if "__main__" == __name__:
