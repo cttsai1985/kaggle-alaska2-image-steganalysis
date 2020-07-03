@@ -1,10 +1,11 @@
 import os
 import random
+from argparse import ArgumentParser
 import time
 import warnings
 from datetime import datetime
 from glob import glob
-from typing import List, Optional, Callable
+from typing import List, Optional, Callable, Tuple, Any, Dict
 
 import albumentations as A
 import cv2
@@ -16,7 +17,7 @@ from albumentations.pytorch.transforms import ToTensorV2
 from catalyst.data.sampler import BalanceClassSampler
 from efficientnet_pytorch import EfficientNet
 from sklearn import metrics
-from sklearn.model_selection import GroupKFold
+from sklearn.model_selection import GroupKFold, StratifiedKFold
 from torch import nn
 from torch.utils.data import Dataset, DataLoader
 from torch.utils.data.sampler import SequentialSampler
@@ -50,6 +51,10 @@ def alaska_weighted_auc(
 
     def compute_submetrics(y_min: float, y_max: float, fpr_arr: np.array, tpr_arr: np.array) -> float:
         mask = (y_min < tpr_arr) & (tpr_arr < y_max)
+
+        if not len(fpr[mask]):
+            return 0.
+
         x_padding = np.linspace(fpr_arr[mask][-1], 1, 100)
 
         x = np.concatenate([fpr_arr[mask], x_padding])
@@ -57,9 +62,9 @@ def alaska_weighted_auc(
         return metrics.auc(x, y - y_min)  # normalize such that curve starts at y=0
 
     fpr, tpr, thresholds = metrics.roc_curve(y_true, y_valid, pos_label=1)
-    submetrics = [compute_submetrics(
+    sub_metrics = [compute_submetrics(
         y_min=a, y_max=b, fpr_arr=fpr, tpr_arr=tpr) for a, b in zip(tpr_thresholds[:-1], tpr_thresholds[1:])]
-    competition_metric = (np.array(submetrics) * weights).sum() / normalization
+    competition_metric = (np.array(sub_metrics) * weights).sum() / normalization
     return competition_metric
 
 
@@ -282,28 +287,35 @@ class Fitter:
             logger.write(f'{message}\n')
 
 
+# DataSet
 class _BaseRetriever(Dataset):
-    def __init__(self, image_names: List[str], transforms: Optional[Callable] = None):
+    def __init__(self, records: List[Dict[str, Any]], transforms: Optional[Callable] = None):
         super().__init__()
-        self.image_names: List[str] = image_names
+        self.records: List[Dict[str, Any]] = records
         self.transforms: Optional[Callable] = transforms
 
-    def _load_one_image(self, index: int):
-        image_name = self.image_names[index]
-        if not os.path.exists(image_name):
-            raise ValueError(f"file image does not exist: {image_name}")
+    def _load_one_image(self, index: int) -> np.array:
+        image_info: int = self.records[index]
+        image_path: str = image_info["file_path"]
+        image_name: str = image_info["image"]
+        image_kind: str = image_info["kind"]
 
-        image = cv2.imread(image_name, cv2.IMREAD_COLOR)
+        if not os.path.exists(image_path):
+            raise ValueError(f"file image does not exist: {image_kind}, {image_name}")
+
+        # full_path: work_dir + kind + image_name
+        # full_path, kind, image_name,
+        image = cv2.imread(image_path, cv2.IMREAD_COLOR)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB).astype(np.float32)
         if self.transforms:
             sample = {'image': image}
             sample = self.transforms(**sample)
             image = sample['image']
 
-        return image_name, image
+        return image
 
     def __len__(self) -> int:
-        return len(self.image_names)
+        return len(self.records)
 
 
 def onehot_target(size: int, target: int):
@@ -313,27 +325,31 @@ def onehot_target(size: int, target: int):
 
 
 class DatasetRetriever(_BaseRetriever):
-
-    def __init__(self, image_names: List[str], labels: List[str], transforms: Optional[Callable] = None):
-        super().__init__(image_names=image_names, transforms=transforms)
-        self.labels: List[str] = labels
-        self.nr_class: int = len(set(labels))
+    def __init__(self, records: List[Dict[str, Any]], transforms: Optional[Callable] = None):
+        super().__init__(records=records, transforms=transforms)
+        self.labels: List[int] = [record.get("label") for record in self.records]
+        self.nr_class: int = len(set(self.labels))
 
     def __getitem__(self, index: int):
-        image_name, image = self._load_one_image(index=index)
-        return image, onehot_target(self.nr_class, self.labels[index])
+        image = self._load_one_image(index=index)
+        label = onehot_target(self.nr_class, self.labels[index])
+        # TODO: make mixup working
+        return image, label
 
-    def get_labels(self):
+    def get_labels(self) -> List[int]:
         return self.labels
 
 
 class SubmissionRetriever(_BaseRetriever):
-    def __init__(self, image_names: List[str], transforms: Optional[Callable] = None):
-        super().__init__(image_names=image_names, transforms=transforms)
+    def __init__(self, records: List[Dict[str, Any]], transforms: Optional[Callable] = None):
+        super().__init__(records=records, transforms=transforms)
 
-    def __getitem__(self, index: int):
-        image_name, image = self._load_one_image(index=index)
-        return os.path.basename(image_name), image
+    def __getitem__(self, index: int) -> Tuple[str, np.array]:
+        image = self._load_one_image(index=index)
+        image_info: int = self.records[index]
+        image_name: str = image_info["image"]
+        image_kind: str = image_info["kind"]
+        return image_kind, image_name, image
 
 
 # Config
@@ -381,7 +397,7 @@ class TrainReduceOnPlateauConfigs:
 
 class TrainOneCycleConfigs:
     num_workers: int = 8
-    batch_size: int = 14  # 16
+    batch_size: int = 14 # 14  # 16
 
     # -------------------
     verbose: bool = True
@@ -392,7 +408,7 @@ class TrainOneCycleConfigs:
     lr: float = 0.001
 
     # --------------------
-    step_scheduler: bool = False  # do scheduler.step after optimizer.step
+    step_scheduler: bool = True  # do scheduler.step after optimizer.step
     validation_scheduler: bool = False
     SchedulerClass = torch.optim.lr_scheduler.OneCycleLR
     scheduler_params = dict(
@@ -412,7 +428,7 @@ class TrainOneCycleConfigs:
         A.VerticalFlip(p=0.5),
         A.RandomRotate90(always_apply=False, p=0.5),
         # A.RandomGridShuffle(grid=(3, 3), always_apply=False, p=0.5),
-        A.InvertImg(always_apply=False, p=0.5),
+        # A.InvertImg(always_apply=False, p=0.5),
         A.Resize(height=512, width=512, p=1.0),
         A.Normalize(always_apply=True),
         ToTensorV2(p=1.0),
@@ -432,7 +448,7 @@ class ValidConfigs:
 
 class TestConfigs:
     num_workers = 8
-    batch_size = 12  # 16
+    batch_size = 8  # 16
 
     transforms: A.Compose = A.Compose([
         A.Resize(height=512, width=512, p=1.0),
@@ -448,8 +464,9 @@ def inference(dataset: Dataset, configs, model: nn.Module) -> pd.DataFrame:
     model.eval()
     result = {'Id': [], 'Label': []}
     total_num_batch: int = int(len(dataset) / configs.batch_size)
-    for step, (image_names, images) in enumerate(data_loader):
-        print(f"Test Batch: {step:03d} / {total_num_batch:d}, {100. * step/total_num_batch: .02f}", end='\r')
+    for step, (image_kinds, image_names, images) in enumerate(data_loader):
+        print(
+            f"Test Batch: {step:03d} / {total_num_batch:d}, progress: {100. * step/total_num_batch: .02f} %", end='\r')
 
         y_pred = model(images.cuda())
         y_pred = 1. - nn.functional.softmax(y_pred, dim=1).data.cpu().numpy()[:, 0]
@@ -458,51 +475,86 @@ def inference(dataset: Dataset, configs, model: nn.Module) -> pd.DataFrame:
         result['Label'].extend(y_pred)
 
     submission = pd.DataFrame(result).sort_values("Id").set_index("Id")
-    print(f"Finish Test: {submission.shape}: \n{submission.descirbe().T}")
+    print(f"Finish Test: {submission.shape}: \n{submission.describe().T}\n")
     return submission
 
 
-def main():
-    seed_everything()
+def index_train_test_images(args):
+    output_dir: str = args.cached_dir
+    working_dir: str = args.data_dir
+    shared_indices: List[str] = ["image", "kind"]
+    file_path_image_quality: str = "image_quality.csv"
 
-    working_dir: str = "../input/alaska2-image-steganalysis/"
-    test_dir: str = "Test"
+    args.file_path_train_images_info = os.path.join(output_dir, "train_images_info.parquet")
+    args.file_path_test_images_info = os.path.join(output_dir, "test_images_info.parquet")
+    if os.path.exists(args.file_path_train_images_info) and os.path.exists(args.file_path_test_images_info):
+        return
 
-    labels: List[str] = ['Cover', 'JMiPOD', 'JUNIWARD', 'UERD']
-    label_map = {kind: label for label, kind in enumerate(labels)}
-    training_images: List[str] = list(
-        filter(lambda x: test_dir != os.path.split(os.path.dirname(x))[-1],
-               glob(os.path.join(working_dir, "*", "*.jpg"))))
-    df_train = pd.DataFrame({"file_path": training_images})
+    file_path_image_quality = os.path.join(output_dir, "file_path_image_quality")
+    df_quality: pd.DataFrame = pd.DataFrame()
+    if os.path.exists(file_path_image_quality):
+        df_quality = pd.read_csv(file_path_image_quality).set_index(shared_indices)
+        print(f"read in image quality file: {df_quality.shape}")
+
+    # process
+    list_all_images: List[str] = list(glob(os.path.join(working_dir, "*", "*.jpg")))
+    df_train = pd.DataFrame({"file_path": list_all_images})
     df_train["image"] = df_train["file_path"].apply(lambda x: os.path.basename(x))
-    df_train["algo"] = df_train["file_path"].apply(lambda x: os.path.split(os.path.dirname(x))[-1])
-    df_train["label"] = df_train["algo"].map(label_map).astype(np.int32)
+    df_train["kind"] = df_train["file_path"].apply(lambda x: os.path.split(os.path.dirname(x))[-1])
+    df_train["label"] = df_train["kind"].map({kind: label for label, kind in enumerate(args.labels)})
+    df_train.set_index(shared_indices, inplace=True)
+
+    if not df_quality.empty:
+        df_train = df_train.join(df_quality["quality"])
+
     print(f"{df_train.nunique()}")
+    df_train.sort_values("image", inplace=True)
+    df_train.loc[df_train["label"].notnull()].to_parquet(args.file_path_train_images_info)
+    df_train.loc[df_train["label"].isnull()].to_parquet(args.file_path_test_images_info)
+    return
 
-    # create net
-    net = EfficientNet.from_pretrained('efficientnet-b2')
-    net._fc = nn.Linear(in_features=1408, out_features=4, bias=True)
 
-    # checkpoint = torch.load("./best-checkpoint-033epoch.bin")
-    # net.load_state_dict(checkpoint['model_state_dict'])
+def process_images_to_records(args, df: pd.DataFrame) -> List[Dict[str, Any]]:
+    df["file_path"] = df.apply(lambda x: os.path.join(args.data_dir, x["kind"], x["image"]), axis=1)
+    return df.to_dict("record")
+
+
+def get_model(args) -> nn.Module:
+    net = EfficientNet.from_pretrained(args.model_arch)
+    net._fc = nn.Linear(in_features=1408, out_features=len(args.labels), bias=True)
+    return net
+
+
+def main(args):
+    seed_everything(args.init_seed)
+    index_train_test_images(args)
+
+    net = get_model(args)
+    checkpoint = torch.load("./old/best-checkpoint-033epoch.bin")
+    net.load_state_dict(checkpoint['model_state_dict'])
 
     model = net.cuda()
     device = torch.device('cuda:0')
-
-    # if False:
-    if True:  # training
+    if False:
+    # if True:  # training
         training_configs = TrainOneCycleConfigs
         validation_configs = ValidConfigs
 
-        gkf = GroupKFold(n_splits=5)
-        for train_index, vallid_index in gkf.split(X=df_train["label"], y=df_train["label"], groups=df_train["image"]):
+        # split data
+        df_train = pd.read_parquet(args.file_path_train_images_info).reset_index()
+        df_train["label"] = df_train["label"].astype(np.int32)
+        df = df_train.loc[(~df_train["image"].duplicated(keep="first"))]
+
+        skf = StratifiedKFold(n_splits=5)
+        for train_index, valid_index in skf.split(X=df["label"], y=df["quality"], groups=df["image"]):
             break
 
-        train_df = df_train.iloc[train_index]
-        valid_df = df_train.iloc[vallid_index]
+        train_df = df_train.loc[df_train["image"].isin(df["image"].iloc[train_index])]
+        valid_df = df_train.loc[df_train["image"].isin(df["image"].iloc[valid_index])]
+        #
 
         train_dataset = DatasetRetriever(
-            image_names=train_df["file_path"].tolist(), labels=train_df["label"].tolist(),
+            records=process_images_to_records(args, df=train_df),
             transforms=training_configs.transforms)
         train_loader = torch.utils.data.DataLoader(
             train_dataset,
@@ -514,7 +566,7 @@ def main():
         )
 
         validation_dataset = DatasetRetriever(
-            image_names=valid_df["file_path"].tolist(), labels=valid_df["label"].tolist(),
+            records=process_images_to_records(args, df=valid_df),
             transforms=training_configs.transforms)
         val_loader = torch.utils.data.DataLoader(
             validation_dataset,
@@ -530,16 +582,57 @@ def main():
         fitter.fit(train_loader, val_loader)
 
     # Test
+    df_test = pd.read_parquet(args.file_path_test_images_info).reset_index()
     dataset = SubmissionRetriever(
-        image_names=glob(os.path.join(working_dir, test_dir, "*.jpg")),
+        records=process_images_to_records(args, df=df_test),
         transforms=TestConfigs.transforms,
     )
 
     submission = inference(dataset=dataset, configs=TestConfigs, model=model)
     submission.to_csv('submission.csv', index=True)
-    print(submission.head())
+    print(f"\nSubmission:\n{submission.head()}")
     return
 
 
+def safe_mkdir(directory: str) -> bool:
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+        print(f"make dir: {directory}")
+        return True
+
+    print(f"skip making dir: {directory}")
+    return False
+
+
 if "__main__" == __name__:
-    main()
+    #
+    default_output_dir: str = "../input/alaska2-image-steganalysis-output/"
+    default_cached_dir: str = "../input/alaska2-image-steganalysis-cached-data/"
+    default_model_dir: str = "../input/alaska2-image-steganalysis-models/"
+    default_data_dir: str = "../input/alaska2-image-steganalysis/"
+    #
+    default_model_arch: str = "efficientnet-b2"
+    #
+    default_init_seed: int = 42
+
+    parser = ArgumentParser()
+    parser.add_argument("--output-dir", type=str, default=default_output_dir, help="folder for output")
+    parser.add_argument("--cached-dir", type=str, default=default_cached_dir, help="folder for cached data")
+    parser.add_argument("--model-dir", type=str, default=default_model_dir, help="folder for models")
+    parser.add_argument("--data-dir", type=str, default=default_data_dir, help="folder for data")
+    #
+    parser.add_argument("--model-arch", type=str, default=default_model_arch, help="model arch")
+    #
+    parser.add_argument("--init-seed", type=int, default=default_init_seed, help="initialize random seed")
+    parser.add_argument('--gpus', default=None)
+    args = parser.parse_args()
+
+    # house keeping
+    safe_mkdir(args.output_dir)
+    safe_mkdir(args.cached_dir)
+    safe_mkdir(args.model_dir)
+    safe_mkdir(args.data_dir)
+    # start program
+
+    args.labels: List[str] = ['Cover', 'JMiPOD', 'JUNIWARD', 'UERD']
+    main(args)
