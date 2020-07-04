@@ -654,7 +654,11 @@ def main(args):
 
     # split data
     if not args.inference_only:
-        df_train = pd.read_parquet(args.file_path_train_images_info).reset_index().iloc[:100]
+        df_train = pd.read_parquet(args.file_path_train_images_info).reset_index()
+
+        if args.debug:
+            df_train = df_train.iloc[:200]
+
         df_train["label"] = df_train["label"].astype(np.int32)
         df = df_train.loc[(~df_train["image"].duplicated(keep="first"))]
 
@@ -781,6 +785,7 @@ if "__main__" == __name__:
     #
     parser.add_argument("--model-arch", type=str, default=default_model_arch, help="model arch")
     #
+    parser.add_argument("--debug", action="store_true", default=False, help="debug")
     parser.add_argument("--inference-only", action="store_true", default=False, help="only inference")
     parser.add_argument("--use-lightning", action="store_true", default=False, help="using lightning trainer")
     parser.add_argument("--refresh-cache", action="store_true", default=False, help="refresh cached data")
