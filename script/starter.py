@@ -1,24 +1,30 @@
 import os
 import random
-from argparse import ArgumentParser
 import time
 import warnings
+from argparse import ArgumentParser
 from datetime import datetime
 from glob import glob
-from typing import List, Optional, Callable, Tuple, Any, Dict
+from typing import List, Optional, Callable, Tuple, Any, Dict, Sequence, Union
 
 import albumentations as A
 import cv2
 import numpy as np
 import pandas as pd
+import pytorch_lightning as pl
+import timm
 import torch
+import torch.nn.functional as F
 from albumentations.pytorch.transforms import ToTensorV2
 # Class Balance "on fly" from @CatalystTeam
 from catalyst.data.sampler import BalanceClassSampler
 from efficientnet_pytorch import EfficientNet
+from pytorch_lightning import Trainer
+from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 from sklearn import metrics
-from sklearn.model_selection import GroupKFold, StratifiedKFold
+from sklearn.model_selection import StratifiedKFold
 from torch import nn
+from torch import optim
 from torch.utils.data import Dataset, DataLoader
 from torch.utils.data.sampler import SequentialSampler
 
@@ -111,13 +117,14 @@ class RocAucMeter:
 
 # Label Smoothing
 class LabelSmoothing(nn.Module):
-    def __init__(self, smoothing: float = 0.05):
+    def __init__(self, smoothing: float = 0.05, enable: bool = True):
         super().__init__()
         self.confidence: float = 1.0 - smoothing
         self.smoothing: float = smoothing
+        self.enable: bool = enable
 
     def forward(self, x, target):
-        if not self.training:
+        if not self.enable:
             return torch.nn.functional.cross_entropy(x, target)
 
         x = x.float()
@@ -287,6 +294,99 @@ class Fitter:
             logger.write(f'{message}\n')
 
 
+class BaseLightningModule(pl.LightningModule):
+    def __init__(
+            self, model: nn.Module,
+            training_records: Optional[List[Dict[str, Any]]] = None, training_configs: Optional = None,
+            valid_records: Optional[List[Dict[str, Any]]] = None, valid_configs: Optional = None,
+            eval_metric_name: str = "val_metric_score", eval_metric_func: Optional[Callable] = None, ):
+        super().__init__()
+        self.model: nn.Module = model
+        #
+        self.training_records: Optional[List[Dict[str, Any]]] = training_records
+        self.training_configs = training_configs
+        self.valid_records: Optional[List[Dict[str, Any]]] = valid_records
+        self.valid_configs = valid_configs
+
+        self.eval_metric_name: str = eval_metric_name
+        self.eval_metric_func: Optional[Callable] = eval_metric_func
+        self.loss: Optional[nn.Module] = self.training_configs.loss
+
+    def training_step(self, batch, batch_idx):
+        x, y = batch
+        y_hat = self.model(x)
+        return {"loss": self.loss(y_hat, y), "y": y, "yhat": y_hat}
+
+    def _post_process_outputs_for_metric(self, outputs):
+        # metric
+        y_true = (torch.cat([x["y"] for x in outputs], dim=0).cpu().numpy()[:, 0] > 0).astype(int)
+        y_pred = 1. - F.softmax(torch.cat([x["yhat"] for x in outputs], dim=0)).data.cpu().numpy()[:, 0]
+        return self.eval_metric_func(y_true, y_pred)
+
+    def training_epoch_end(self, outputs) -> Dict[str, float]:
+        tr_loss_mean = torch.stack([x["loss"] for x in outputs]).mean()
+
+        tr_metric = self._post_process_outputs_for_metric(outputs)
+        print(f"\ntr_loss: {tr_loss_mean:.6f}, {self.eval_metric_name}: {tr_metric:.6f}\n")
+        return {"tr_loss": tr_loss_mean, self.eval_metric_name: tr_metric}
+
+    def validation_step(self, batch, batch_idx) -> Dict[str, Any]:
+        x, y = batch
+        y_hat = self.model(x)
+        return {"val_loss": self.loss(y_hat, y), "y": y, "yhat": y_hat}
+
+    def validation_epoch_end(self, outputs) -> Dict[str, float]:
+        val_loss_mean = torch.stack([x["val_loss"] for x in outputs]).mean()
+
+        val_metric = self._post_process_outputs_for_metric(outputs)
+        print(f"\nval_loss: {val_loss_mean:.6f}, {self.eval_metric_name}: {val_metric:.6f}")
+
+        logs = {"val_loss": val_loss_mean, self.eval_metric_name: val_metric}
+        return {"val_loss": val_loss_mean, self.eval_metric_name: val_metric, "log": logs}
+
+    def test_step(self, batch, batch_idx):
+        raise NotImplementedError()
+
+    def test_epoch_end(self, outputs):
+        raise NotImplementedError()
+
+    def train_dataloader(self) -> DataLoader:
+        train_dataset = DatasetRetriever(
+            records=self.training_records, transforms=self.training_configs.transforms)
+        train_loader = torch.utils.data.DataLoader(
+            train_dataset, sampler=BalanceClassSampler(labels=train_dataset.get_labels(), mode="downsampling"),
+            batch_size=self.training_configs.batch_size, pin_memory=True, drop_last=True,
+            num_workers=self.training_configs.num_workers,
+        )
+        return train_loader
+
+    def val_dataloader(self) -> DataLoader:
+        validation_dataset = DatasetRetriever(
+            records=self.valid_records, transforms=self.valid_configs.transforms)
+        val_loader = torch.utils.data.DataLoader(
+            validation_dataset, batch_size=self.valid_configs.batch_size, pin_memory=True, shuffle=False,
+            num_workers=self.valid_configs.num_workers, sampler=SequentialSampler(validation_dataset), )
+        return val_loader
+
+    def test_dataloader(self) -> Union[DataLoader, List[DataLoader]]:
+        raise NotImplementedError()
+
+    def forward(self, x):
+        return self.model(x)
+
+    def configure_optimizers(
+            self) -> Union[optim.Optimizer, Sequence[optim.Optimizer], Dict, Sequence[Dict], Tuple[List, List], None]:
+        optimizer = optim.AdamW(self.model.parameters(), lr=self.training_configs.lr)
+
+        scheduler_params = self.training_configs.scheduler_params.copy()
+        if "steps_per_epoch" in scheduler_params.keys():
+            steps_per_epoch = int(len(self.training_records) // self.training_configs.batch_size) + 1
+            scheduler_params.update({"steps_per_epoch": steps_per_epoch})
+
+        scheduler = self.training_configs.SchedulerClass(optimizer, **scheduler_params)
+        return [optimizer], [scheduler]
+
+
 # DataSet
 class _BaseRetriever(Dataset):
     def __init__(self, records: List[Dict[str, Any]], transforms: Optional[Callable] = None):
@@ -352,6 +452,74 @@ class SubmissionRetriever(_BaseRetriever):
         return image_kind, image_name, image
 
 
+def inference(dataset: Dataset, configs, model: nn.Module) -> pd.DataFrame:
+    data_loader = DataLoader(
+        dataset, batch_size=configs.batch_size, shuffle=False, num_workers=configs.num_workers, drop_last=False, )
+
+    model.eval()
+    result = {'Id': [], 'Label': []}
+    total_num_batch: int = int(len(dataset) / configs.batch_size)
+    for step, (image_kinds, image_names, images) in enumerate(data_loader):
+        print(
+            f"Test Batch: {step:03d} / {total_num_batch:d}, progress: {100. * step / total_num_batch: .02f} %",
+            end='\r')
+
+        y_pred = model(images.cuda())
+        y_pred = 1. - nn.functional.softmax(y_pred, dim=1).data.cpu().numpy()[:, 0]
+
+        result['Id'].extend(image_names)
+        result['Label'].extend(y_pred)
+
+    submission = pd.DataFrame(result).sort_values("Id").set_index("Id")
+    print(f"\nFinish Test: {submission.shape}, Stats:\n{submission.describe()}\n")
+    return submission
+
+
+def index_train_test_images(args):
+    working_dir: str = args.data_dir
+    output_dir: str = args.cached_dir
+    meta_dir: str = args.meta_dir
+    shared_indices: List[str] = ["image", "kind"]
+    file_path_image_quality: str = "image_quality.csv"
+
+    args.file_path_train_images_info = os.path.join(output_dir, "train_images_info.parquet")
+    args.file_path_test_images_info = os.path.join(output_dir, "test_images_info.parquet")
+    if os.path.exists(args.file_path_train_images_info) and os.path.exists(args.file_path_test_images_info):
+        if not args.refresh_cache:
+            return
+
+    file_path_image_quality = os.path.join(meta_dir, file_path_image_quality)
+    df_quality: pd.DataFrame = pd.DataFrame()
+    if os.path.exists(file_path_image_quality):
+        df_quality = pd.read_csv(file_path_image_quality).set_index(shared_indices)
+        print(f"read in image quality file: {df_quality.shape}")
+    else:
+        print(f"image quality not exist: {file_path_image_quality}")
+        raise ValueError()
+
+    # process
+    list_all_images: List[str] = list(glob(os.path.join(working_dir, "*", "*.jpg")))
+    df_train = pd.DataFrame({"file_path": list_all_images})
+    df_train["image"] = df_train["file_path"].apply(lambda x: os.path.basename(x))
+    df_train["kind"] = df_train["file_path"].apply(lambda x: os.path.split(os.path.dirname(x))[-1])
+    df_train["label"] = df_train["kind"].map({kind: label for label, kind in enumerate(args.labels)})
+    df_train.set_index(shared_indices, inplace=True)
+
+    if not df_quality.empty:
+        df_train = df_train.join(df_quality["quality"])
+
+    print(f"{df_train.nunique()}")
+    df_train.sort_values("image", inplace=True)
+    df_train.loc[df_train["label"].notnull()].to_parquet(args.file_path_train_images_info)
+    df_train.loc[df_train["label"].isnull()].to_parquet(args.file_path_test_images_info)
+    return
+
+
+def process_images_to_records(args, df: pd.DataFrame) -> List[Dict[str, Any]]:
+    df["file_path"] = df.apply(lambda x: os.path.join(args.data_dir, x["kind"], x["image"]), axis=1)
+    return df.to_dict("record")
+
+
 # Config
 class TrainReduceOnPlateauConfigs:
     num_workers: int = 8
@@ -364,6 +532,8 @@ class TrainReduceOnPlateauConfigs:
 
     n_epochs: int = 5
     lr: float = 0.001
+
+    loss: nn.Module = LabelSmoothing(smoothing=.05)
 
     # --------------------
     validation_scheduler = True  # do scheduler.step after validation stage loss
@@ -388,7 +558,7 @@ class TrainReduceOnPlateauConfigs:
         A.VerticalFlip(p=0.5),
         A.RandomRotate90(always_apply=False, p=0.5),
         # A.RandomGridShuffle(grid=(3, 3), always_apply=False, p=0.5),
-        # A.InvertImg(always_apply=False, p=0.5),
+        A.InvertImg(always_apply=False, p=0.5),
         A.Resize(height=512, width=512, p=1.0),
         A.Normalize(always_apply=True),
         ToTensorV2(p=1.0),
@@ -397,15 +567,17 @@ class TrainReduceOnPlateauConfigs:
 
 class TrainOneCycleConfigs:
     num_workers: int = 8
-    batch_size: int = 14 # 14  # 16
+    batch_size: int = 14 # 16
 
     # -------------------
     verbose: bool = True
     verbose_step: int = 1
     # -------------------
 
-    n_epochs: int = 10
+    n_epochs: int = 40
     lr: float = 0.001
+
+    loss: nn.Module = LabelSmoothing(smoothing=.05)
 
     # --------------------
     step_scheduler: bool = True  # do scheduler.step after optimizer.step
@@ -414,7 +586,7 @@ class TrainOneCycleConfigs:
     scheduler_params = dict(
         max_lr=0.001,
         epochs=n_epochs,
-        steps_per_epoch=20000,  # int(len(train_dataset) / batch_size),
+        steps_per_epoch=30000,  # int(len(train_dataset) / batch_size),
         pct_start=0.1,
         anneal_strategy='cos',
         final_div_factor=10 ** 5
@@ -428,7 +600,7 @@ class TrainOneCycleConfigs:
         A.VerticalFlip(p=0.5),
         A.RandomRotate90(always_apply=False, p=0.5),
         # A.RandomGridShuffle(grid=(3, 3), always_apply=False, p=0.5),
-        # A.InvertImg(always_apply=False, p=0.5),
+        A.InvertImg(always_apply=False, p=0.5),
         A.Resize(height=512, width=512, p=1.0),
         A.Normalize(always_apply=True),
         ToTensorV2(p=1.0),
@@ -457,86 +629,69 @@ class TestConfigs:
     ], p=1.0)
 
 
-def inference(dataset: Dataset, configs, model: nn.Module) -> pd.DataFrame:
-    data_loader = DataLoader(
-        dataset, batch_size=configs.batch_size, shuffle=False, num_workers=configs.num_workers, drop_last=False, )
-
-    model.eval()
-    result = {'Id': [], 'Label': []}
-    total_num_batch: int = int(len(dataset) / configs.batch_size)
-    for step, (image_kinds, image_names, images) in enumerate(data_loader):
-        print(
-            f"Test Batch: {step:03d} / {total_num_batch:d}, progress: {100. * step/total_num_batch: .02f} %", end='\r')
-
-        y_pred = model(images.cuda())
-        y_pred = 1. - nn.functional.softmax(y_pred, dim=1).data.cpu().numpy()[:, 0]
-
-        result['Id'].extend(image_names)
-        result['Label'].extend(y_pred)
-
-    submission = pd.DataFrame(result).sort_values("Id").set_index("Id")
-    print(f"Finish Test: {submission.shape}: \n{submission.describe().T}\n")
-    return submission
-
-
-def index_train_test_images(args):
-    output_dir: str = args.cached_dir
-    working_dir: str = args.data_dir
-    shared_indices: List[str] = ["image", "kind"]
-    file_path_image_quality: str = "image_quality.csv"
-
-    args.file_path_train_images_info = os.path.join(output_dir, "train_images_info.parquet")
-    args.file_path_test_images_info = os.path.join(output_dir, "test_images_info.parquet")
-    if os.path.exists(args.file_path_train_images_info) and os.path.exists(args.file_path_test_images_info):
-        return
-
-    file_path_image_quality = os.path.join(output_dir, "file_path_image_quality")
-    df_quality: pd.DataFrame = pd.DataFrame()
-    if os.path.exists(file_path_image_quality):
-        df_quality = pd.read_csv(file_path_image_quality).set_index(shared_indices)
-        print(f"read in image quality file: {df_quality.shape}")
-
-    # process
-    list_all_images: List[str] = list(glob(os.path.join(working_dir, "*", "*.jpg")))
-    df_train = pd.DataFrame({"file_path": list_all_images})
-    df_train["image"] = df_train["file_path"].apply(lambda x: os.path.basename(x))
-    df_train["kind"] = df_train["file_path"].apply(lambda x: os.path.split(os.path.dirname(x))[-1])
-    df_train["label"] = df_train["kind"].map({kind: label for label, kind in enumerate(args.labels)})
-    df_train.set_index(shared_indices, inplace=True)
-
-    if not df_quality.empty:
-        df_train = df_train.join(df_quality["quality"])
-
-    print(f"{df_train.nunique()}")
-    df_train.sort_values("image", inplace=True)
-    df_train.loc[df_train["label"].notnull()].to_parquet(args.file_path_train_images_info)
-    df_train.loc[df_train["label"].isnull()].to_parquet(args.file_path_test_images_info)
-    return
-
-
-def process_images_to_records(args, df: pd.DataFrame) -> List[Dict[str, Any]]:
-    df["file_path"] = df.apply(lambda x: os.path.join(args.data_dir, x["kind"], x["image"]), axis=1)
-    return df.to_dict("record")
-
-
-def get_model(args) -> nn.Module:
-    net = EfficientNet.from_pretrained(args.model_arch)
-    net._fc = nn.Linear(in_features=1408, out_features=len(args.labels), bias=True)
-    return net
-
-
 def main(args):
+    args.labels: List[str] = ['Cover', 'JMiPOD', 'JUNIWARD', 'UERD']
+    eval_metric_name: str = "weighted_auc"
+
     seed_everything(args.init_seed)
     index_train_test_images(args)
 
-    net = get_model(args)
-    checkpoint = torch.load("./old/best-checkpoint-033epoch.bin")
-    net.load_state_dict(checkpoint['model_state_dict'])
+    if "efficientnet" in args.model_arch:
+        net = EfficientNet.from_pretrained(args.model_arch, advprop=False, in_channels=3, num_classes=len(args.labels))
+    else:
+        args.model_arch = "seresnet34"  # resnext50_32x4d"
+        net = timm.create_model(
+            args.model_arch, pretrained=True, num_classes=len(args.labels), in_chans=3, drop_rate=.5)
 
+    # checkpoint = torch.load("./old/best-checkpoint-033epoch.bin")
+    # net.load_state_dict(checkpoint['model_state_dict'])
+
+    if not args.inference_only:
+        # split data
+        df_train = pd.read_parquet(args.file_path_train_images_info).reset_index()
+        df_train["label"] = df_train["label"].astype(np.int32)
+        df = df_train.loc[(~df_train["image"].duplicated(keep="first"))]
+
+        skf = StratifiedKFold(n_splits=5)
+        for train_index, valid_index in skf.split(X=df["label"], y=df["quality"], groups=df["image"]):
+            break
+
+        train_df = df_train.loc[df_train["image"].isin(df["image"].iloc[train_index])]
+        valid_df = df_train.loc[df_train["image"].isin(df["image"].iloc[valid_index])]
+        #
+        training_records = process_images_to_records(args, df=train_df)
+        valid_records = process_images_to_records(args, df=valid_df)
+
+    if not args.inference_only and args.use_lightning:
+        training_configs = TrainOneCycleConfigs
+        validation_configs = ValidConfigs
+
+        model = net
+        model = BaseLightningModule(
+            model, training_configs=training_configs, training_records=training_records,
+            valid_configs=validation_configs, valid_records=valid_records, eval_metric_name=eval_metric_name,
+            eval_metric_func=alaska_weighted_auc)
+
+        file_path_checkpoint: str = os.path.join(
+            args.model_dir, "__".join(["result", args.model_arch, "{epoch:03d}-{val_loss:.4f}"]))
+
+        checkpoint_callback = ModelCheckpoint(filepath=file_path_checkpoint)
+        early_stop_callback = EarlyStopping(
+            monitor=eval_metric_name, min_delta=0., patience=5, verbose=True, mode='max')
+        trainer = Trainer(
+            gpus=args.gpus, min_epochs=1, max_epochs=1000,
+            # distributed_backend="dpp",
+            early_stop_callback=early_stop_callback,
+            checkpoint_callback=checkpoint_callback
+        )
+        trainer.fit(model)
+        model.freeze()
+
+    # raw
     model = net.cuda()
     device = torch.device('cuda:0')
-    if False:
-    # if True:  # training
+
+    if not args.inference_only and not args.use_lightning:
         training_configs = TrainOneCycleConfigs
         validation_configs = ValidConfigs
 
@@ -553,25 +708,20 @@ def main(args):
         valid_df = df_train.loc[df_train["image"].isin(df["image"].iloc[valid_index])]
         #
 
-        train_dataset = DatasetRetriever(
-            records=process_images_to_records(args, df=train_df),
-            transforms=training_configs.transforms)
+        train_dataset = DatasetRetriever(records=training_records, transforms=training_configs.transforms)
         train_loader = torch.utils.data.DataLoader(
-            train_dataset,
+            DatasetRetriever(records=training_records, transforms=training_configs.transforms),
             sampler=BalanceClassSampler(labels=train_dataset.get_labels(), mode="downsampling"),
             batch_size=training_configs.batch_size,
             pin_memory=False,
             drop_last=True,
-            num_workers=training_configs.num_workers,
+            num_workers=args.n_jobs,
         )
-
-        validation_dataset = DatasetRetriever(
-            records=process_images_to_records(args, df=valid_df),
-            transforms=training_configs.transforms)
+        validation_dataset = DatasetRetriever(records=valid_records, transforms=training_configs.transforms)
         val_loader = torch.utils.data.DataLoader(
             validation_dataset,
             batch_size=validation_configs.batch_size,
-            num_workers=validation_configs.num_workers,
+            num_workers=args.n_jobs,
             shuffle=False,
             sampler=SequentialSampler(validation_dataset),
             pin_memory=False,
@@ -584,9 +734,7 @@ def main(args):
     # Test
     df_test = pd.read_parquet(args.file_path_test_images_info).reset_index()
     dataset = SubmissionRetriever(
-        records=process_images_to_records(args, df=df_test),
-        transforms=TestConfigs.transforms,
-    )
+        records=process_images_to_records(args, df=df_test), transforms=TestConfigs.transforms, )
 
     submission = inference(dataset=dataset, configs=TestConfigs, model=model)
     submission.to_csv('submission.csv', index=True)
@@ -608,21 +756,28 @@ if "__main__" == __name__:
     #
     default_output_dir: str = "../input/alaska2-image-steganalysis-output/"
     default_cached_dir: str = "../input/alaska2-image-steganalysis-cached-data/"
+    default_meta_dir: str = "../input/alaska2-image-steganalysis-image-quality/"
     default_model_dir: str = "../input/alaska2-image-steganalysis-models/"
     default_data_dir: str = "../input/alaska2-image-steganalysis/"
     #
     default_model_arch: str = "efficientnet-b2"
     #
+    default_n_jobs: int = 8
     default_init_seed: int = 42
 
     parser = ArgumentParser()
     parser.add_argument("--output-dir", type=str, default=default_output_dir, help="folder for output")
     parser.add_argument("--cached-dir", type=str, default=default_cached_dir, help="folder for cached data")
+    parser.add_argument("--meta-dir", type=str, default=default_meta_dir, help="folder for meta data")
     parser.add_argument("--model-dir", type=str, default=default_model_dir, help="folder for models")
     parser.add_argument("--data-dir", type=str, default=default_data_dir, help="folder for data")
     #
     parser.add_argument("--model-arch", type=str, default=default_model_arch, help="model arch")
     #
+    parser.add_argument("--inference-only", action="store_true", default=False, help="only inference")
+    parser.add_argument("--use-lightning", action="store_true", default=False, help="using lightning trainer")
+    parser.add_argument("--refresh-cache", action="store_true", default=False, help="refresh cached data")
+    parser.add_argument("--n-jobs", type=int, default=default_n_jobs, help="num worker")
     parser.add_argument("--init-seed", type=int, default=default_init_seed, help="initialize random seed")
     parser.add_argument('--gpus', default=None)
     args = parser.parse_args()
@@ -631,8 +786,5 @@ if "__main__" == __name__:
     safe_mkdir(args.output_dir)
     safe_mkdir(args.cached_dir)
     safe_mkdir(args.model_dir)
-    safe_mkdir(args.data_dir)
     # start program
-
-    args.labels: List[str] = ['Cover', 'JMiPOD', 'JUNIWARD', 'UERD']
     main(args)
