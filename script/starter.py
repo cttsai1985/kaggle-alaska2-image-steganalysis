@@ -317,7 +317,7 @@ class BaseLightningModule(pl.LightningModule):
 
     def _post_process_outputs_for_metric(self, outputs):
         # metric
-        y_true = (torch.cat([x["y"] for x in outputs], dim=0).cpu().numpy()[:, 0] > 0).astype(int)
+        y_true = (torch.cat([x["y"] for x in outputs], dim=0).cpu().numpy()[:, 0] == 0).astype(int)
         y_pred = 1. - F.softmax(torch.cat([x["yhat"] for x in outputs], dim=0)).data.cpu().numpy()[:, 0]
         return self.eval_metric_func(y_true, y_pred)
 
