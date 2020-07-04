@@ -151,7 +151,7 @@ class Fitter:
 
         self.optimizer = None
         self.scheduler = None
-        self.criterion = None
+        self.criterion: Optional[nn.Module] = None
 
         self.log(f'Fitter prepared. Device is {self.device}')
         self._configure_fitter()
@@ -166,7 +166,7 @@ class Fitter:
 
         self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.config.lr)
         self.scheduler = self.config.SchedulerClass(self.optimizer, **self.config.scheduler_params)
-        self.criterion = LabelSmoothing().to(self.device)
+        self.criterion = self.config.loss.to(self.device)
         return self
 
     def fit(self, train_loader, validation_loader):
@@ -210,9 +210,8 @@ class Fitter:
             if self.config.verbose:
                 if step % self.config.verbose_step == 0:
                     print(
-                        f'Val Step {step}/{len(val_loader)}, ' + \
-                        f'summary_loss: {summary_loss.avg:.5f}, final_score: {final_scores.avg:.5f}, ' + \
-                        f'time: {(time.time() - t):.5f}', end='\r'
+                        f'Val Step {step}/{len(val_loader)}, summary_loss: {summary_loss.avg:.5f}, final_score: {final_scores.avg:.5f}, time: {(time.time() - t):.5f}',
+                        end='\r'
                     )
             with torch.no_grad():
                 targets = targets.to(self.device).float()
@@ -234,9 +233,8 @@ class Fitter:
             if self.config.verbose:
                 if step % self.config.verbose_step == 0:
                     print(
-                        f'Train Step {step}/{len(train_loader)}, ' + \
-                        f'summary_loss: {summary_loss.avg:.5f}, final_score: {final_scores.avg:.5f}, ' + \
-                        f'time: {(time.time() - t):.5f}', end='\r'
+                        f'Train Step {step}/{len(train_loader)}, summary_loss: {summary_loss.avg:.5f}, final_score: {final_scores.avg:.5f}, time: {(time.time() - t):.5f}',
+                        end='\r'
                     )
 
             targets = targets.to(self.device).float()
@@ -327,8 +325,9 @@ class BaseLightningModule(pl.LightningModule):
         tr_loss_mean = torch.stack([x["loss"] for x in outputs]).mean()
 
         tr_metric = self._post_process_outputs_for_metric(outputs)
-        print(f"\ntr_loss: {tr_loss_mean:.6f}, {self.eval_metric_name}: {tr_metric:.6f}\n")
-        return {"tr_loss": tr_loss_mean, self.eval_metric_name: tr_metric}
+        metric_name: str = f"tr_{self.eval_metric_name}"
+        print(f"loss: {tr_loss_mean:.6f}, {metric_name}: {tr_metric:.6f}\n")
+        return {"loss": tr_loss_mean, metric_name: tr_metric}
 
     def validation_step(self, batch, batch_idx) -> Dict[str, Any]:
         x, y = batch
@@ -339,10 +338,11 @@ class BaseLightningModule(pl.LightningModule):
         val_loss_mean = torch.stack([x["val_loss"] for x in outputs]).mean()
 
         val_metric = self._post_process_outputs_for_metric(outputs)
-        print(f"\nval_loss: {val_loss_mean:.6f}, {self.eval_metric_name}: {val_metric:.6f}")
+        metric_name: str = f"val_{self.eval_metric_name}"
+        print(f"\nval_loss: {val_loss_mean:.6f}, {metric_name}: {val_metric:.6f}")
 
-        logs = {"val_loss": val_loss_mean, self.eval_metric_name: val_metric}
-        return {"val_loss": val_loss_mean, self.eval_metric_name: val_metric, "log": logs}
+        logs = {"val_loss": val_loss_mean, metric_name: val_metric}
+        return {"val_loss": val_loss_mean, metric_name: val_metric, "log": logs}
 
     def test_step(self, batch, batch_idx):
         raise NotImplementedError()
@@ -528,14 +528,16 @@ class TrainReduceOnPlateauConfigs:
     # -------------------
     verbose: bool = True
     verbose_step: int = 1
-    # -------------------
 
+    # -------------------
     n_epochs: int = 5
     lr: float = 0.001
 
+    # --------------------
     loss: nn.Module = LabelSmoothing(smoothing=.05)
 
     # --------------------
+    step_scheduler: bool = False  # do scheduler.step after optimizer.step
     validation_scheduler = True  # do scheduler.step after validation stage loss
     SchedulerClass = torch.optim.lr_scheduler.ReduceLROnPlateau
     scheduler_params = dict(
@@ -549,7 +551,6 @@ class TrainReduceOnPlateauConfigs:
         min_lr=1e-8,
         eps=1e-08
     )
-    # --------------------
 
     # Augmentations
     # --------------------
@@ -567,16 +568,21 @@ class TrainReduceOnPlateauConfigs:
 
 class TrainOneCycleConfigs:
     num_workers: int = 8
-    batch_size: int = 14 # 16
+    # batch_size: int = 14  # efficientnet-b2
+    # batch_size: int = 11  # efficientnet-b3
+    # batch_size: int = 8  # efficientnet-b4
+    # batch_size: int = 6  # efficientnet-b5
+    batch_size: int = 4  # efficientnet-b6
 
     # -------------------
     verbose: bool = True
     verbose_step: int = 1
-    # -------------------
 
+    # -------------------
     n_epochs: int = 40
     lr: float = 0.001
 
+    # --------------------
     loss: nn.Module = LabelSmoothing(smoothing=.05)
 
     # --------------------
@@ -591,7 +597,6 @@ class TrainOneCycleConfigs:
         anneal_strategy='cos',
         final_div_factor=10 ** 5
     )
-    # --------------------
 
     # Augmentations
     # --------------------
@@ -609,7 +614,7 @@ class TrainOneCycleConfigs:
 
 class ValidConfigs:
     num_workers: int = 8
-    batch_size: int = 12  # 16
+    batch_size: int = 16  # 16
 
     transforms: A.Compose = A.Compose([
         A.Resize(height=512, width=512, p=1.0),
@@ -637,18 +642,19 @@ def main(args):
     index_train_test_images(args)
 
     if "efficientnet" in args.model_arch:
-        net = EfficientNet.from_pretrained(args.model_arch, advprop=False, in_channels=3, num_classes=len(args.labels))
+        model = EfficientNet.from_pretrained(
+            args.model_arch, advprop=False, in_channels=3, num_classes=len(args.labels))
     else:
-        args.model_arch = "seresnet34"  # resnext50_32x4d"
-        net = timm.create_model(
+        # "seresnet34", resnext50_32x4d"
+        model = timm.create_model(
             args.model_arch, pretrained=True, num_classes=len(args.labels), in_chans=3, drop_rate=.5)
 
     # checkpoint = torch.load("./old/best-checkpoint-033epoch.bin")
     # net.load_state_dict(checkpoint['model_state_dict'])
 
+    # split data
     if not args.inference_only:
-        # split data
-        df_train = pd.read_parquet(args.file_path_train_images_info).reset_index()
+        df_train = pd.read_parquet(args.file_path_train_images_info).reset_index().iloc[:100]
         df_train["label"] = df_train["label"].astype(np.int32)
         df = df_train.loc[(~df_train["image"].duplicated(keep="first"))]
 
@@ -666,20 +672,21 @@ def main(args):
         training_configs = TrainOneCycleConfigs
         validation_configs = ValidConfigs
 
-        model = net
         model = BaseLightningModule(
             model, training_configs=training_configs, training_records=training_records,
             valid_configs=validation_configs, valid_records=valid_records, eval_metric_name=eval_metric_name,
             eval_metric_func=alaska_weighted_auc)
 
+        metric_name: str = f"val_{eval_metric_name}"
         file_path_checkpoint: str = os.path.join(
             args.model_dir, "__".join(["result", args.model_arch, "{epoch:03d}-{val_loss:.4f}"]))
+        checkpoint_callback = ModelCheckpoint(
+            filepath=file_path_checkpoint, save_top_k=3, verbose=True, monitor=metric_name, mode="max")
 
-        checkpoint_callback = ModelCheckpoint(filepath=file_path_checkpoint)
         early_stop_callback = EarlyStopping(
-            monitor=eval_metric_name, min_delta=0., patience=5, verbose=True, mode='max')
+            monitor=metric_name, min_delta=0., patience=5, verbose=True, mode='max')
         trainer = Trainer(
-            gpus=args.gpus, min_epochs=1, max_epochs=1000,
+            gpus=args.gpus, min_epochs=1, max_epochs=1000, default_root_dir=args.model_dir,
             # distributed_backend="dpp",
             early_stop_callback=early_stop_callback,
             checkpoint_callback=checkpoint_callback
@@ -688,7 +695,7 @@ def main(args):
         model.freeze()
 
     # raw
-    model = net.cuda()
+    model = model.cuda()
     device = torch.device('cuda:0')
 
     if not args.inference_only and not args.use_lightning:
