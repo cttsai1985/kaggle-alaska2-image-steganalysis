@@ -266,22 +266,19 @@ class Fitter:
         }, path)
         return self
 
-    def load(self, path):
+    def load(self, path, model_weights_only: bool = False):
         checkpoint = torch.load(path)
         self.model.load_state_dict(checkpoint['model_state_dict'])
         self.model.cuda()
 
         self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.config.lr)
-        self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-
         self.scheduler = self.config.lr_scheduler(self.optimizer, **self.config.scheduler_params)
-        self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+        if not model_weights_only:
+            self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+            self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+            self.best_summary_loss = checkpoint['best_summary_loss']
+            self.epoch = checkpoint['epoch'] + 1
 
-        self.criterion = LabelSmoothing().to(self.device)
-
-        self.best_summary_loss = checkpoint['best_summary_loss']
-        self.epoch = checkpoint['epoch'] + 1
-        # self._configure_fitter()
         return self
 
     def log(self, message):
@@ -762,15 +759,17 @@ def main(args):
         model = timm.create_model(
             args.model_arch, pretrained=True, num_classes=len(args.labels), in_chans=3, drop_rate=.5)
 
-    # checkpoint = torch.load("./old/best-checkpoint-033epoch.bin")
-    # net.load_state_dict(checkpoint['model_state_dict'])
+    if args.load_checkpoint and os.path.exists(args.checkpoint_path):
+        checkpoint = torch.load(args.checkpoint_path)
+        model.load_state_dict(checkpoint['model_state_dict'])
+        if not args.model_weights_only:
+            pass
 
     if not args.inference_only:
         # configs
         validation_configs = BaseConfigs.from_file(file_path=args.valid_configs)
         training_configs = BaseConfigs.from_file(file_path=args.train_configs)
         training_configs.loss = LabelSmoothing(smoothing=.05)
-        import pdb; pdb.set_trace()
 
         # split data
         df_train = pd.read_parquet(args.file_path_train_images_info).reset_index()
@@ -838,6 +837,8 @@ def main(args):
         )
 
         fitter = Fitter(model=model, device=device, config=training_configs)
+        if args.load_checkpoint and os.path.exists(args.checkpoint_path):
+            fitter.load(args.checkpoint_path, model_weights_only=args.model_weights_only)
         # fitter.load(f'{fitter.base_dir}/best-checkpoint-024epoch.bin')
         fitter.fit(train_loader, val_loader)
 
@@ -888,11 +889,14 @@ if "__main__" == __name__:
     parser.add_argument("--data-dir", type=str, default=default_data_dir, help="folder for data")
     #
     parser.add_argument("--model-arch", type=str, default=default_model_arch, help="model arch")
-    #
+    parser.add_argument("--checkpoint-path", type=str, default=None, help="model checkpoint")
+    parser.add_argument("--load-checkpoint", action="store_true", default=False, help="load checkpoint")
+    parser.add_argument("--load-weights-only", action="store_true", default=False, help="load weights only")
+    # configs
     parser.add_argument("--train-configs", type=str, default=default_train_configs, help="configs for training")
     parser.add_argument("--valid-configs", type=str, default=default_valid_configs, help="configs for validation")
     parser.add_argument("--test-configs", type=str, default=default_test_configs, help="configs for test")
-    #
+    # functional
     parser.add_argument("--debug", action="store_true", default=False, help="debug")
     parser.add_argument("--inference-only", action="store_true", default=False, help="only inference")
     parser.add_argument("--use-lightning", action="store_true", default=False, help="using lightning trainer")
