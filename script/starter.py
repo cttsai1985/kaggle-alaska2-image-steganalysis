@@ -12,7 +12,7 @@ import cv2
 import numpy as np
 import pandas as pd
 import pytorch_lightning as pl
-import timm
+import timm  # pretrained model
 import torch
 import torch.nn.functional as F
 from albumentations.pytorch.transforms import ToTensorV2
@@ -142,26 +142,26 @@ class Fitter:
         self.config = config
         self.epoch = 0
 
-        self.base_dir = './'
-        self.log_path = f'{self.base_dir}/log.txt'
+        self.base_dir = "./"
+        self.log_path = os.path.join(self.base_dir, "log.txt")
         self.best_summary_loss = 10 ** 5
 
-        self.model = model
+        self.model: nn.Module = model
         self.device = device
 
         self.optimizer = None
         self.scheduler = None
         self.criterion: Optional[nn.Module] = None
 
-        self.log(f'Fitter prepared. Device is {self.device}')
+        self.log(f"Fitter prepared. Device is {self.device}")
         self._configure_fitter()
 
     def _configure_fitter(self):
         param_optimizer = list(self.model.named_parameters())
-        no_decay = ['bias', 'LayerNorm.bias', 'LayerNorm.weight']
+        no_decay = ["bias", "LayerNorm.bias", "LayerNorm.weight"]
         optimizer_grouped_parameters = [
-            {'params': [p for n, p in param_optimizer if not any(nd in n for nd in no_decay)], 'weight_decay': 0.001},
-            {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay)], 'weight_decay': 0.0}
+            {"params": [p for n, p in param_optimizer if not any(nd in n for nd in no_decay)], "weight_decay": 0.001},
+            {"params": [p for n, p in param_optimizer if any(nd in n for nd in no_decay)], "weight_decay": 0.0}
         ]
 
         self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.config.lr)
@@ -173,27 +173,29 @@ class Fitter:
 
         for e in range(self.config.n_epochs):
             if self.config.verbose:
-                lr = self.optimizer.param_groups[0]['lr']
+                lr = self.optimizer.param_groups[0]["lr"]
                 timestamp = datetime.utcnow().isoformat()
-                self.log(f'\n{timestamp}\nLR: {lr}')
+                self.log(f"\n{timestamp}\nLR: {lr}")
 
             t = time.time()
             summary_loss, final_scores = self.train_one_epoch(train_loader)
 
             self.log(
-                f'[RESULT]: Train. Epoch: {self.epoch}, summary_loss: {summary_loss.avg:.5f}, final_score: {final_scores.avg:.5f}, time: {(time.time() - t):.5f}')
-            self.save(f'{self.base_dir}/last-checkpoint.bin')
+                f"[RESULT]: Train. Epoch: {self.epoch}, summary_loss: {summary_loss.avg:.5f}, final_score: "
+                f"{final_scores.avg:.5f}, time: {(time.time() - t):.5f}")
+            self.save(os.path.join(self.base_dir, "last-checkpoint.bin"))
 
             t = time.time()
             summary_loss, final_scores = self.validation(validation_loader)
 
             self.log(
-                f'[RESULT]: Val. Epoch: {self.epoch}, summary_loss: {summary_loss.avg:.5f}, final_score: {final_scores.avg:.5f}, time: {(time.time() - t):.5f}')
+                f"[RESULT]: Val. Epoch: {self.epoch}, summary_loss: {summary_loss.avg:.5f}, final_score: "
+                f"{final_scores.avg:.5f}, time: {(time.time() - t):.5f}")
             if summary_loss.avg < self.best_summary_loss:
                 self.best_summary_loss = summary_loss.avg
                 self.model.eval()
-                self.save(f'{self.base_dir}/best-checkpoint-{str(self.epoch).zfill(3)}epoch.bin')
-                for path in sorted(glob(f'{self.base_dir}/best-checkpoint-*epoch.bin'))[:-3]:
+                self.save(os.path.join(self.base_dir, f"best-checkpoint-{self.epoch:03d}epoch.bin"))
+                for path in sorted(glob(os.path.join(self.base_dir, "best-checkpoint-*epoch.bin")))[:-3]:
                     os.remove(path)
 
             if self.config.step_after_validation:
@@ -207,18 +209,20 @@ class Fitter:
         final_scores = RocAucMeter()
         t = time.time()
         for step, (images, targets) in enumerate(val_loader):
-            if self.config.verbose:
-                if step % self.config.verbose_step == 0:
-                    print(
-                        f'Val Step {step}/{len(val_loader)}, summary_loss: {summary_loss.avg:.5f}, final_score: {final_scores.avg:.5f}, time: {(time.time() - t):.5f}',
-                        end='\r'
-                    )
+            if step % self.config.verbose_step == 0 and self.config.verbose:
+                print(
+                    f"Val Step {step}/{len(val_loader)}, summary_loss: {summary_loss.avg:.5f}, final_score: "
+                    f"{final_scores.avg:.5f}, time: {(time.time() - t):.5f}",
+                    end="\r"
+                )
+
             with torch.no_grad():
                 targets = targets.to(self.device).float()
-                batch_size = images.shape[0]
                 images = images.to(self.device).float()
+                batch_size = images.shape[0]
                 outputs = self.model(images)
                 loss = self.criterion(outputs, targets)
+                #
                 final_scores.update(targets, outputs)
                 summary_loss.update(loss.detach().item(), batch_size)
 
@@ -230,22 +234,21 @@ class Fitter:
         final_scores = RocAucMeter()
         t = time.time()
         for step, (images, targets) in enumerate(train_loader):
-            if self.config.verbose:
-                if step % self.config.verbose_step == 0:
-                    print(
-                        f'Train Step {step}/{len(train_loader)}, summary_loss: {summary_loss.avg:.5f}, final_score: {final_scores.avg:.5f}, time: {(time.time() - t):.5f}',
-                        end='\r'
+            if step % self.config.verbose_step == 0 and self.config.verbose:
+                print(
+                    f"Train Step {step}/{len(train_loader)}, summary_loss: {summary_loss.avg:.5f}, final_score: "
+                    f"{final_scores.avg:.5f}, time: {(time.time() - t):.5f}",
+                        end="\r"
                     )
 
             targets = targets.to(self.device).float()
             images = images.to(self.device).float()
             batch_size = images.shape[0]
-
             self.optimizer.zero_grad()
             outputs = self.model(images)
             loss = self.criterion(outputs, targets)
             loss.backward()
-
+            #
             final_scores.update(targets, outputs)
             summary_loss.update(loss.detach().item(), batch_size)
 
@@ -602,8 +605,10 @@ class BaseConfigs:
 
         # --------------------
         tmp = lr_schedulers.get(self.configs["lr_scheduler"], None)
-        self.step_after_optimizer: bool = tmp.get("step_after_optimizer", False)  # do scheduler.step after optimizer.step
-        self.step_after_validation: bool = tmp.get("step_after_validation", False)  # do scheduler.step after validation stage loss
+        self.step_after_optimizer: bool = tmp.get(
+            "step_after_optimizer", False)  # do scheduler.step after optimizer.step
+        self.step_after_validation: bool = tmp.get(
+            "step_after_validation", False)  # do scheduler.step after validation stage loss
         self.lr_scheduler = tmp.get("lr_scheduler", None)
         self.scheduler_params: Dict = tmp.get("params", dict()).copy()
         laod_scheduler_params = self.configs.get("scheduler_params", dict())
@@ -740,6 +745,8 @@ class TestConfigs:
         A.Normalize(always_apply=True),
         ToTensorV2(p=1.0),
     ], p=1.0)
+
+
 ########################################################################################################################
 # Configs Block Ends
 
