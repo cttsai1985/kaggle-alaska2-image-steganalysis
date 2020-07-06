@@ -165,7 +165,7 @@ class Fitter:
         ]
 
         self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.config.lr)
-        self.scheduler = self.config.SchedulerClass(self.optimizer, **self.config.scheduler_params)
+        self.scheduler = self.config.lr_scheduler(self.optimizer, **self.config.scheduler_params)
         self.criterion = self.config.loss.to(self.device)
         return self
 
@@ -275,7 +275,7 @@ class Fitter:
         self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.config.lr)
         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
 
-        self.scheduler = self.config.SchedulerClass(self.optimizer, **self.config.scheduler_params)
+        self.scheduler = self.config.lr_scheduler(self.optimizer, **self.config.scheduler_params)
         self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
 
         self.criterion = LabelSmoothing().to(self.device)
@@ -383,7 +383,7 @@ class BaseLightningModule(pl.LightningModule):
             steps_per_epoch = int(len(self.training_records) // self.training_configs.batch_size) + 1
             scheduler_params.update({"steps_per_epoch": steps_per_epoch})
 
-        scheduler = self.training_configs.SchedulerClass(optimizer, **scheduler_params)
+        scheduler = self.training_configs.lr_scheduler(optimizer, **scheduler_params)
         return [optimizer], [scheduler]
 
 
@@ -520,7 +520,119 @@ def process_images_to_records(args, df: pd.DataFrame) -> List[Dict[str, Any]]:
     return df.to_dict("record")
 
 
-# Config
+def initialize_configs(filename: str):
+    if not os.path.exists(filename):
+        raise ValueError("Spec file {spec_file} does not exist".format(spec_file=filename))
+
+    module_name = filename.split(os.sep)[-1].replace('.', '')
+
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(module_name, filename)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+lr_schedulers = {
+    "ReduceLROnPlateau": {
+        "lr_scheduler": optim.lr_scheduler.ReduceLROnPlateau,
+        "step_after_optimizer": False,  # do scheduler.step after optimizer.step
+        "step_after_validation": True,  # do scheduler.step after validation stage loss
+        "params": {
+            "mode": "min",
+            "factor": 0.5,
+            "patience": 1,
+            "verbose": False,
+            "threshold": 0.0001,
+            "threshold_mode": "abs",
+            "cooldown": 0,
+            "min_lr": 1e-8,
+            "eps": 1e-08
+        },
+    },
+
+    "OneCycleLR": {
+        "lr_scheduler": optim.lr_scheduler.OneCycleLR,
+        "step_after_optimizer": True,  # do scheduler.step after optimizer.step
+        "step_after_validation": False,  # do scheduler.step after validation stage loss
+        "params": {
+            "max_lr": 0.001,
+            "epochs": 5,
+            "steps_per_epoch": 30000,  # int(len(train_dataset) / batch_size),
+            "pct_start": 0.1,
+            "anneal_strategy": "cos",
+            "final_div_factor": 10 ** 5
+        },
+    },
+}
+
+augment_methods = {
+    "HorizontalFlip": A.HorizontalFlip,
+    "VerticalFlip": A.VerticalFlip,
+    "RandomRotate90": A.RandomRotate90,
+    "RandomGridShuffle": A.RandomGridShuffle,
+    "InvertImg": A.InvertImg,
+    "Resize": A.Resize,
+    "Normalize": A.Normalize,
+    "ToTensorV2": ToTensorV2,
+}
+
+
+def transform_factory(item, possible_methods=augment_methods):
+    obj = possible_methods.get(item["transform"])
+    params = item["params"]
+    return obj(**params)
+
+
+class BaseConfigs:
+    def __init__(self, file_path: str):
+        self.configs: Dict[str, Any] = self._load_configs(file_path)
+
+        # -------------------
+        self.num_workers: int = self.configs.get("num_workers", 8)
+        self.batch_size: int = self.configs.get("batch_size", 16)
+
+        # display
+        # -------------------
+        self.verbose: bool = self.configs.get("verbose", True)
+        self.verbose_step: int = self.configs.get("verbose_step", 1)
+
+        # -------------------
+        self.n_epochs: int = self.configs.get("n_epochs", 5)
+        self.lr: float = self.configs.get("lr", 0.001)
+
+        # --------------------
+        self.loss: Optional[nn.Module] = None
+
+        # --------------------
+        tmp = lr_schedulers.get(self.configs["lr_scheduler"], None)
+        self.step_scheduler: bool = tmp.get("step_after_optimizer", False)  # do scheduler.step after optimizer.step
+        self.validation_scheduler: bool = tmp.get("step_after_validation", False)  # do scheduler.step after validation stage loss
+        self.lr_scheduler = tmp.get("lr_scheduler", None)
+        self.scheduler_params: Dict = tmp.get("params", dict()).copy()
+        laod_scheduler_params = self.configs.get("scheduler_params", dict())
+        if laod_scheduler_params:
+            self.scheduler_params.update(laod_scheduler_params)
+
+        if "max_lr" in self.scheduler_params.keys():
+            self.scheduler_params["max_lr"] = self.lr
+
+        if "epochs" in self.scheduler_params.keys():
+            self.scheduler_params["epochs"] = self.n_epochs
+
+        self.transform: List = A.Compose([transform_factory(item) for item in self.configs["augmentations"]])
+
+    @staticmethod
+    def _load_configs(file_path: str):
+        return initialize_configs(file_path).configs
+
+    @classmethod
+    def from_file(cls, file_path: str):
+        return cls(file_path=file_path)
+
+
+# Configs Block Starts
+########################################################################################################################
 class TrainReduceOnPlateauConfigs:
     num_workers: int = 8
     batch_size: int = 12  # 16
@@ -539,7 +651,7 @@ class TrainReduceOnPlateauConfigs:
     # --------------------
     step_scheduler: bool = False  # do scheduler.step after optimizer.step
     validation_scheduler = True  # do scheduler.step after validation stage loss
-    SchedulerClass = torch.optim.lr_scheduler.ReduceLROnPlateau
+    lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau
     scheduler_params = dict(
         mode='min',
         factor=0.5,
@@ -568,11 +680,11 @@ class TrainReduceOnPlateauConfigs:
 
 class TrainOneCycleConfigs:
     num_workers: int = 8
-    # batch_size: int = 14  # efficientnet-b2
+    batch_size: int = 14  # efficientnet-b2
     # batch_size: int = 11  # efficientnet-b3
     # batch_size: int = 8  # efficientnet-b4
     # batch_size: int = 6  # efficientnet-b5
-    batch_size: int = 4  # efficientnet-b6
+    # batch_size: int = 4  # efficientnet-b6
 
     # -------------------
     verbose: bool = True
@@ -588,7 +700,7 @@ class TrainOneCycleConfigs:
     # --------------------
     step_scheduler: bool = True  # do scheduler.step after optimizer.step
     validation_scheduler: bool = False
-    SchedulerClass = torch.optim.lr_scheduler.OneCycleLR
+    lr_scheduler = torch.optim.lr_scheduler.OneCycleLR
     scheduler_params = dict(
         max_lr=0.001,
         epochs=n_epochs,
@@ -632,6 +744,8 @@ class TestConfigs:
         A.Normalize(always_apply=True),
         ToTensorV2(p=1.0),
     ], p=1.0)
+########################################################################################################################
+# Configs Block Ends
 
 
 def main(args):
@@ -652,10 +766,15 @@ def main(args):
     # checkpoint = torch.load("./old/best-checkpoint-033epoch.bin")
     # net.load_state_dict(checkpoint['model_state_dict'])
 
-    # split data
     if not args.inference_only:
-        df_train = pd.read_parquet(args.file_path_train_images_info).reset_index()
+        # configs
+        validation_configs = BaseConfigs.from_file(file_path=args.valid_configs)
+        training_configs = BaseConfigs.from_file(file_path=args.train_configs)
+        training_configs.loss = LabelSmoothing(smoothing=.05)
+        import pdb; pdb.set_trace()
 
+        # split data
+        df_train = pd.read_parquet(args.file_path_train_images_info).reset_index()
         if args.debug:
             df_train = df_train.iloc[:200]
 
@@ -673,9 +792,6 @@ def main(args):
         valid_records = process_images_to_records(args, df=valid_df)
 
     if not args.inference_only and args.use_lightning:
-        training_configs = TrainOneCycleConfigs
-        validation_configs = ValidConfigs
-
         model = BaseLightningModule(
             model, training_configs=training_configs, training_records=training_records,
             valid_configs=validation_configs, valid_records=valid_records, eval_metric_name=eval_metric_name,
@@ -703,22 +819,6 @@ def main(args):
     device = torch.device('cuda:0')
 
     if not args.inference_only and not args.use_lightning:
-        training_configs = TrainOneCycleConfigs
-        validation_configs = ValidConfigs
-
-        # split data
-        df_train = pd.read_parquet(args.file_path_train_images_info).reset_index()
-        df_train["label"] = df_train["label"].astype(np.int32)
-        df = df_train.loc[(~df_train["image"].duplicated(keep="first"))]
-
-        skf = StratifiedKFold(n_splits=5)
-        for train_index, valid_index in skf.split(X=df["label"], y=df["quality"], groups=df["image"]):
-            break
-
-        train_df = df_train.loc[df_train["image"].isin(df["image"].iloc[train_index])]
-        valid_df = df_train.loc[df_train["image"].isin(df["image"].iloc[valid_index])]
-        #
-
         train_dataset = DatasetRetriever(records=training_records, transforms=training_configs.transforms)
         train_loader = torch.utils.data.DataLoader(
             DatasetRetriever(records=training_records, transforms=training_configs.transforms),
@@ -743,11 +843,12 @@ def main(args):
         fitter.fit(train_loader, val_loader)
 
     # Test
+    test_configs = BaseConfigs.from_file(file_path=args.test_configs)
     df_test = pd.read_parquet(args.file_path_test_images_info).reset_index()
     dataset = SubmissionRetriever(
-        records=process_images_to_records(args, df=df_test), transforms=TestConfigs.transforms, )
+        records=process_images_to_records(args, df=df_test), transforms=test_configs.transforms, )
 
-    submission = inference(dataset=dataset, configs=TestConfigs, model=model)
+    submission = inference(dataset=dataset, configs=test_configs, model=model)
     submission.to_csv('submission.csv', index=True)
     print(f"\nSubmission:\n{submission.head()}")
     return
@@ -773,6 +874,10 @@ if "__main__" == __name__:
     #
     default_model_arch: str = "efficientnet-b2"
     #
+    default_train_configs: str = "../configs/train_baseline.py"
+    default_valid_configs: str = "../configs/train_baseline.py"
+    default_test_configs: str = "../configs/test_baseline.py"
+    #
     default_n_jobs: int = 8
     default_init_seed: int = 42
 
@@ -784,6 +889,10 @@ if "__main__" == __name__:
     parser.add_argument("--data-dir", type=str, default=default_data_dir, help="folder for data")
     #
     parser.add_argument("--model-arch", type=str, default=default_model_arch, help="model arch")
+    #
+    parser.add_argument("--train-configs", type=str, default=default_train_configs, help="configs for training")
+    parser.add_argument("--valid-configs", type=str, default=default_valid_configs, help="configs for validation")
+    parser.add_argument("--test-configs", type=str, default=default_test_configs, help="configs for test")
     #
     parser.add_argument("--debug", action="store_true", default=False, help="debug")
     parser.add_argument("--inference-only", action="store_true", default=False, help="only inference")
