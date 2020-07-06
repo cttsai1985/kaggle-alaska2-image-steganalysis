@@ -196,7 +196,7 @@ class Fitter:
                 for path in sorted(glob(f'{self.base_dir}/best-checkpoint-*epoch.bin'))[:-3]:
                     os.remove(path)
 
-            if self.config.validation_scheduler:
+            if self.config.step_after_validation:
                 self.scheduler.step(metrics=summary_loss.avg)
 
             self.epoch += 1
@@ -250,8 +250,7 @@ class Fitter:
             summary_loss.update(loss.detach().item(), batch_size)
 
             self.optimizer.step()
-
-            if self.config.step_scheduler:
+            if self.config.step_after_optimizer:
                 self.scheduler.step()
 
         return summary_loss, final_scores
@@ -606,8 +605,8 @@ class BaseConfigs:
 
         # --------------------
         tmp = lr_schedulers.get(self.configs["lr_scheduler"], None)
-        self.step_scheduler: bool = tmp.get("step_after_optimizer", False)  # do scheduler.step after optimizer.step
-        self.validation_scheduler: bool = tmp.get("step_after_validation", False)  # do scheduler.step after validation stage loss
+        self.step_after_optimizer: bool = tmp.get("step_after_optimizer", False)  # do scheduler.step after optimizer.step
+        self.step_after_validation: bool = tmp.get("step_after_validation", False)  # do scheduler.step after validation stage loss
         self.lr_scheduler = tmp.get("lr_scheduler", None)
         self.scheduler_params: Dict = tmp.get("params", dict()).copy()
         laod_scheduler_params = self.configs.get("scheduler_params", dict())
@@ -649,8 +648,8 @@ class TrainReduceOnPlateauConfigs:
     loss: nn.Module = LabelSmoothing(smoothing=.05)
 
     # --------------------
-    step_scheduler: bool = False  # do scheduler.step after optimizer.step
-    validation_scheduler = True  # do scheduler.step after validation stage loss
+    step_after_optimizer: bool = False  # do scheduler.step after optimizer.step
+    step_after_validation = True  # do scheduler.step after validation stage loss
     lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau
     scheduler_params = dict(
         mode='min',
@@ -698,8 +697,8 @@ class TrainOneCycleConfigs:
     loss: nn.Module = LabelSmoothing(smoothing=.05)
 
     # --------------------
-    step_scheduler: bool = True  # do scheduler.step after optimizer.step
-    validation_scheduler: bool = False
+    step_after_optimizer: bool = True  # do scheduler.step after optimizer.step
+    step_after_validation: bool = False
     lr_scheduler = torch.optim.lr_scheduler.OneCycleLR
     scheduler_params = dict(
         max_lr=0.001,
