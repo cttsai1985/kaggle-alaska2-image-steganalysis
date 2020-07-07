@@ -305,9 +305,13 @@ class BaseLightningModule(pl.LightningModule):
         self.valid_records: Optional[List[Dict[str, Any]]] = valid_records
         self.valid_configs = valid_configs
 
+        self.restored_checkpoint = None
+
         self.eval_metric_name: str = eval_metric_name
         self.eval_metric_func: Optional[Callable] = eval_metric_func
-        self.loss: Optional[nn.Module] = self.training_configs.loss
+        self.loss: Optional[nn.Module] = None
+        if self.training_configs is not None:
+            self.loss = self.training_configs.loss
 
     def training_step(self, batch, batch_idx):
         x, y = batch
@@ -383,6 +387,11 @@ class BaseLightningModule(pl.LightningModule):
             scheduler_params.update({"steps_per_epoch": steps_per_epoch})
 
         scheduler = self.training_configs.lr_scheduler(optimizer, **scheduler_params)
+
+        if self.restored_checkpoint is not None:
+            optimizer.load_state_dict(self.restored_checkpoint["optimizer_states"])
+            scheduler.load_state_dict(self.restored_checkpoint["lr_schedulers"])
+            self.current_epoch = self.restored_checkpoint["epoch"] + 1
         return [optimizer], [scheduler]
 
 
@@ -603,25 +612,29 @@ class BaseConfigs:
         # --------------------
         self.loss: Optional[nn.Module] = None
 
+        # config scheduler
         # --------------------
-        tmp = lr_schedulers.get(self.configs["lr_scheduler"], None)
-        self.step_after_optimizer: bool = tmp.get(
-            "step_after_optimizer", False)  # do scheduler.step after optimizer.step
-        self.step_after_validation: bool = tmp.get(
-            "step_after_validation", False)  # do scheduler.step after validation stage loss
-        self.lr_scheduler = tmp.get("lr_scheduler", None)
-        self.scheduler_params: Dict = tmp.get("params", dict()).copy()
-        laod_scheduler_params = self.configs.get("scheduler_params", dict())
-        if laod_scheduler_params:
-            self.scheduler_params.update(laod_scheduler_params)
+        if "lr_scheduler" in self.configs.keys():
+            tmp = lr_schedulers.get(self.configs["lr_scheduler"], None)
+            self.step_after_optimizer: bool = tmp.get(
+                "step_after_optimizer", False)  # do scheduler.step after optimizer.step
+            self.step_after_validation: bool = tmp.get(
+                "step_after_validation", False)  # do scheduler.step after validation stage loss
+            self.lr_scheduler = tmp.get("lr_scheduler", None)
 
-        if "max_lr" in self.scheduler_params.keys():
-            self.scheduler_params["max_lr"] = self.lr
+            # scheduler params
+            self.scheduler_params: Dict = tmp.get("params", dict()).copy()
+            laod_scheduler_params = self.configs.get("scheduler_params", dict())
+            if laod_scheduler_params:
+                self.scheduler_params.update(laod_scheduler_params)
 
-        if "epochs" in self.scheduler_params.keys():
-            self.scheduler_params["epochs"] = self.n_epochs
+            if "max_lr" in self.scheduler_params.keys():
+                self.scheduler_params["max_lr"] = self.lr
 
-        self.transform: List = A.Compose([transform_factory(item) for item in self.configs["augmentations"]])
+            if "epochs" in self.scheduler_params.keys():
+                self.scheduler_params["epochs"] = self.n_epochs
+
+        self.transforms: List = A.Compose([transform_factory(item) for item in self.configs["augmentations"]])
 
     @staticmethod
     def _load_configs(file_path: str):
@@ -766,12 +779,11 @@ def main(args):
         model = timm.create_model(
             args.model_arch, pretrained=True, num_classes=len(args.labels), in_chans=3, drop_rate=.5)
 
-    if args.load_checkpoint and os.path.exists(args.checkpoint_path):
-        checkpoint = torch.load(args.checkpoint_path)
-        model.load_state_dict(checkpoint['model_state_dict'])
-        if not args.model_weights_only:
-            pass
-
+    # loading info for training
+    training_configs = None
+    validation_configs = None
+    training_records = list()
+    valid_records = list()
     if not args.inference_only:
         # configs
         validation_configs = BaseConfigs.from_file(file_path=args.valid_configs)
@@ -796,28 +808,43 @@ def main(args):
         training_records = process_images_to_records(args, df=train_df)
         valid_records = process_images_to_records(args, df=valid_df)
 
-    if not args.inference_only and args.use_lightning:
+    # use lightning
+    if args.use_lightning:
         model = BaseLightningModule(
             model, training_configs=training_configs, training_records=training_records,
             valid_configs=validation_configs, valid_records=valid_records, eval_metric_name=eval_metric_name,
             eval_metric_func=alaska_weighted_auc)
 
-        metric_name: str = f"val_{eval_metric_name}"
-        file_path_checkpoint: str = os.path.join(
-            args.model_dir, "__".join(["result", args.model_arch, "{epoch:03d}-{val_loss:.4f}"]))
-        checkpoint_callback = ModelCheckpoint(
-            filepath=file_path_checkpoint, save_top_k=3, verbose=True, monitor=metric_name, mode="max")
+        # load_from_checkpoint: not working
+        if args.load_checkpoint and os.path.exists(args.checkpoint_path):
+            checkpoint = torch.load(args.checkpoint_path)
+            model.load_state_dict(checkpoint['state_dict'])
 
-        early_stop_callback = EarlyStopping(
-            monitor=metric_name, min_delta=0., patience=5, verbose=True, mode='max')
-        trainer = Trainer(
-            gpus=args.gpus, min_epochs=1, max_epochs=1000, default_root_dir=args.model_dir,
-            # distributed_backend="dpp",
-            early_stop_callback=early_stop_callback,
-            checkpoint_callback=checkpoint_callback
-        )
-        trainer.fit(model)
-        model.freeze()
+            print(checkpoint["lr_schedulers"])
+            # not working if using
+            # trainer = Trainer(resume_From_checkpoint=args.checkpoint_path)
+            if not args.load_weights_only:
+                model.restored_checkpoint = checkpoint
+
+        # training
+        if not args.inference_only:
+            metric_name: str = f"val_{eval_metric_name}"
+            file_path_checkpoint: str = os.path.join(
+                args.model_dir, "__".join(["result", args.model_arch, "{epoch:03d}-{val_loss:.4f}"]))
+            checkpoint_callback = ModelCheckpoint(
+                filepath=file_path_checkpoint, save_top_k=3, verbose=True, monitor=metric_name, mode="max")
+
+            early_stop_callback = EarlyStopping(
+                monitor=metric_name, min_delta=0., patience=5, verbose=True, mode='max')
+            trainer = Trainer(
+                gpus=args.gpus, min_epochs=1, max_epochs=1000, default_root_dir=args.model_dir,
+                # distributed_backend="dpp",
+                early_stop_callback=early_stop_callback,
+                checkpoint_callback=checkpoint_callback
+            )
+
+            trainer.fit(model)
+            model.freeze()
 
     # raw
     model = model.cuda()
@@ -845,7 +872,7 @@ def main(args):
 
         fitter = Fitter(model=model, device=device, config=training_configs)
         if args.load_checkpoint and os.path.exists(args.checkpoint_path):
-            fitter.load(args.checkpoint_path, model_weights_only=args.model_weights_only)
+            fitter.load(args.checkpoint_path, model_weights_only=args.load_weights_only)
         # fitter.load(f'{fitter.base_dir}/best-checkpoint-024epoch.bin')
         fitter.fit(train_loader, val_loader)
 
