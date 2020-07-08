@@ -635,6 +635,10 @@ class BaseConfigs:
                 self.scheduler_params["epochs"] = self.n_epochs
 
         self.transforms: List = A.Compose([transform_factory(item) for item in self.configs["augmentations"]])
+        self.tta_transforms = [self.transforms]
+        if "test_time_augmentations" in self.configs.keys():
+            self.tta_transforms: List = [
+                A.Compose([transform_factory(i) for i in tta]) for tta in self.configs["test_time_augmentations"]]
 
     @staticmethod
     def _load_configs(file_path: str):
@@ -879,10 +883,20 @@ def main(args):
     # Test
     test_configs = BaseConfigs.from_file(file_path=args.test_configs)
     df_test = pd.read_parquet(args.file_path_test_images_info).reset_index()
-    dataset = SubmissionRetriever(
-        records=process_images_to_records(args, df=df_test), transforms=test_configs.transforms, )
+    if args.tta:
+        collect = list()
+        for i, tta in enumerate(test_configs.tta_transforms, 1):
+            print(f"TTA: {i:02d} / {len(test_configs.tta_transforms):02d} rounds")
+            dataset = SubmissionRetriever(records=process_images_to_records(args, df=df_test), transforms=tta, )
+            submission = inference(dataset=dataset, configs=test_configs, model=model)
+            collect.append(submission)
 
-    submission = inference(dataset=dataset, configs=test_configs, model=model)
+        submission = pd.concat(collect, ).groupby(level=-1).mean()
+    else:
+        dataset = SubmissionRetriever(
+            records=process_images_to_records(args, df=df_test), transforms=test_configs.transforms, )
+        submission = inference(dataset=dataset, configs=test_configs, model=model)
+
     submission.to_csv('submission.csv', index=True)
     print(f"\nSubmission:\n{submission.head()}")
     return
@@ -932,6 +946,7 @@ if "__main__" == __name__:
     parser.add_argument("--test-configs", type=str, default=default_test_configs, help="configs for test")
     # functional
     parser.add_argument("--debug", action="store_true", default=False, help="debug")
+    parser.add_argument("--tta", action="store_true", default=False, help="test time augmentation")
     parser.add_argument("--inference-only", action="store_true", default=False, help="only inference")
     parser.add_argument("--use-lightning", action="store_true", default=False, help="using lightning trainer")
     parser.add_argument("--refresh-cache", action="store_true", default=False, help="refresh cached data")

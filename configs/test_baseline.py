@@ -1,6 +1,6 @@
 configs = {
     "num_workers": 8,
-    "batch_size": 12,
+    "batch_size": 8,
 
     "augmentations": [
 #        {"transform": "HorizontalFlip", "params": {"p": .5}, },
@@ -10,6 +10,26 @@ configs = {
         {"transform": "Resize", "params": {"height": 512, "width": 512, "always_apply": True, "p": 1.}, },
         {"transform": "Normalize", "params": {"always_apply": True, "p": 1.}, },
         {"transform": "ToTensorV2", "params": {"always_apply": True, "p": 1.}, },
+    ],
+
+    "test_time_augmentations": [
+        [
+            {"transform": "Resize", "params": {"height": 512, "width": 512, "always_apply": True, "p": 1.}, },
+            {"transform": "Normalize", "params": {"always_apply": True, "p": 1.}, },
+            {"transform": "ToTensorV2", "params": {"always_apply": True, "p": 1.}, },
+        ],
+        [
+            {"transform": "HorizontalFlip", "params": {"always_apply": True, "p": 1.}, },
+            {"transform": "Resize", "params": {"height": 512, "width": 512, "always_apply": True, "p": 1.}, },
+            {"transform": "Normalize", "params": {"always_apply": True, "p": 1.}, },
+            {"transform": "ToTensorV2", "params": {"always_apply": True, "p": 1.}, },
+        ],
+        [
+            {"transform": "VerticalFlip", "params": {"always_apply": True, "p": 1.}, },
+            {"transform": "Resize", "params": {"height": 512, "width": 512, "always_apply": True, "p": 1.}, },
+            {"transform": "Normalize", "params": {"always_apply": True, "p": 1.}, },
+            {"transform": "ToTensorV2", "params": {"always_apply": True, "p": 1.}, },
+        ],
     ],
 }
 
