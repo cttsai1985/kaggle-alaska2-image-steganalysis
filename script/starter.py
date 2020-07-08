@@ -299,14 +299,17 @@ class BaseLightningModule(pl.LightningModule):
             eval_metric_name: str = "val_metric_score", eval_metric_func: Optional[Callable] = None, ):
         super().__init__()
         self.model: nn.Module = model
-        #
+        # configs, records
         self.training_records: Optional[List[Dict[str, Any]]] = training_records
         self.training_configs = training_configs
         self.valid_records: Optional[List[Dict[str, Any]]] = valid_records
         self.valid_configs = valid_configs
-
+        #
         self.restored_checkpoint = None
+        #
+        self.current_epoch: int = 0
 
+        # eval metric
         self.eval_metric_name: str = eval_metric_name
         self.eval_metric_func: Optional[Callable] = eval_metric_func
         self.loss: Optional[nn.Module] = None
@@ -330,6 +333,7 @@ class BaseLightningModule(pl.LightningModule):
         tr_metric = self._post_process_outputs_for_metric(outputs)
         metric_name: str = f"tr_{self.eval_metric_name}"
         print(f"loss: {tr_loss_mean:.6f}, {metric_name}: {tr_metric:.6f}\n")
+
         return {"loss": tr_loss_mean, metric_name: tr_metric}
 
     def validation_step(self, batch, batch_idx) -> Dict[str, Any]:
@@ -388,10 +392,12 @@ class BaseLightningModule(pl.LightningModule):
 
         scheduler = self.training_configs.lr_scheduler(optimizer, **scheduler_params)
 
+        # restore checkpoint
         if self.restored_checkpoint is not None:
             optimizer.load_state_dict(self.restored_checkpoint["optimizer_states"])
             scheduler.load_state_dict(self.restored_checkpoint["lr_schedulers"])
             self.current_epoch = self.restored_checkpoint["epoch"] + 1
+
         return [optimizer], [scheduler]
 
 
@@ -639,7 +645,8 @@ class BaseConfigs:
         if "test_time_augmentations" in self.configs.keys():
             self.tta_transforms = [self._load_transforms(tta) for tta in self.configs["test_time_augmentations"]]
 
-    def _load_transforms(self, augmentations: List):
+    @staticmethod
+    def _load_transforms(augmentations: List):
         return A.Compose([transform_factory(item) for item in augmentations])
 
     @staticmethod
@@ -864,13 +871,13 @@ def main(args):
             batch_size=training_configs.batch_size,
             pin_memory=False,
             drop_last=True,
-            num_workers=args.n_jobs,
+            num_workers=training_configs.num_workers,
         )
         validation_dataset = DatasetRetriever(records=valid_records, transforms=training_configs.transforms)
         val_loader = torch.utils.data.DataLoader(
             validation_dataset,
             batch_size=validation_configs.batch_size,
-            num_workers=args.n_jobs,
+            num_workers=validation_configs.num_workers,
             shuffle=False,
             sampler=SequentialSampler(validation_dataset),
             pin_memory=False,
@@ -947,14 +954,16 @@ if "__main__" == __name__:
     parser.add_argument("--valid-configs", type=str, default=default_valid_configs, help="configs for validation")
     parser.add_argument("--test-configs", type=str, default=default_test_configs, help="configs for test")
     # functional
-    parser.add_argument("--debug", action="store_true", default=False, help="debug")
-    parser.add_argument("--tta", action="store_true", default=False, help="test time augmentation")
-    parser.add_argument("--inference-only", action="store_true", default=False, help="only inference")
+    parser.add_argument("--tta", action="store_true", default=False, help="perform test time augmentation")
+    parser.add_argument("--inference-only", action="store_true", default=False, help="only perform inference")
     parser.add_argument("--use-lightning", action="store_true", default=False, help="using lightning trainer")
     parser.add_argument("--refresh-cache", action="store_true", default=False, help="refresh cached data")
     parser.add_argument("--n-jobs", type=int, default=default_n_jobs, help="num worker")
     parser.add_argument("--init-seed", type=int, default=default_init_seed, help="initialize random seed")
+    #
     parser.add_argument('--gpus', default=None)
+    # debug
+    parser.add_argument("--debug", action="store_true", default=False, help="debug")
     args = parser.parse_args()
 
     # house keeping
