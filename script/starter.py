@@ -550,7 +550,7 @@ lr_schedulers = {
             "mode": "min",
             "factor": 0.5,
             "patience": 1,
-            "verbose": False,
+            "verbose": True,
             "threshold": 0.0001,
             "threshold_mode": "abs",
             "cooldown": 0,
@@ -586,7 +586,7 @@ augment_methods = {
 }
 
 
-def transform_factory(item, possible_methods=augment_methods):
+def transform_factory(item, possible_methods: Dict[str, Any] = augment_methods):
     obj = possible_methods.get(item["transform"])
     params = item["params"]
     return obj(**params)
@@ -634,11 +634,13 @@ class BaseConfigs:
             if "epochs" in self.scheduler_params.keys():
                 self.scheduler_params["epochs"] = self.n_epochs
 
-        self.transforms: List = A.Compose([transform_factory(item) for item in self.configs["augmentations"]])
-        self.tta_transforms = [self.transforms]
+        self.transforms: List = self._load_transforms(self.configs["augmentations"])
+        self.tta_transforms: List = [self.transforms]
         if "test_time_augmentations" in self.configs.keys():
-            self.tta_transforms: List = [
-                A.Compose([transform_factory(i) for i in tta]) for tta in self.configs["test_time_augmentations"]]
+            self.tta_transforms = [self._load_transforms(tta) for tta in self.configs["test_time_augmentations"]]
+
+    def _load_transforms(self, augmentations: List):
+        return A.Compose([transform_factory(item) for item in augmentations])
 
     @staticmethod
     def _load_configs(file_path: str):
@@ -674,7 +676,7 @@ class TrainReduceOnPlateauConfigs:
         mode='min',
         factor=0.5,
         patience=1,
-        verbose=False,
+        verbose=True,
         threshold=0.0001,
         threshold_mode='abs',
         cooldown=0,
