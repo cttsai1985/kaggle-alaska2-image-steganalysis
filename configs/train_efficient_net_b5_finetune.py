@@ -3,7 +3,10 @@ configs = {
     "batch_size": 5,
 
     "n_epochs": 25,
-    "lr": .00001,
+    "lr": 4e-07,
+    # "lr": 4e-05,
+
+    "accumulate_grad_batches": 4,
 
     "lr_scheduler": "ReduceLROnPlateau",
     "scheduler_params": {},

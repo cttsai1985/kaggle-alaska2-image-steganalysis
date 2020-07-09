@@ -606,6 +606,9 @@ class BaseConfigs:
         self.num_workers: int = self.configs.get("num_workers", 8)
         self.batch_size: int = self.configs.get("batch_size", 16)
 
+        self.accumulate_grad_batches: Union[int, Dict[int, int], List[list]] = self.configs.get(
+            "accumulate_grad_batches", 1)
+
         # display
         # -------------------
         self.verbose: bool = self.configs.get("verbose", True)
@@ -851,6 +854,7 @@ def main(args):
                 monitor=metric_name, min_delta=0., patience=5, verbose=True, mode='max')
             trainer = Trainer(
                 gpus=args.gpus, min_epochs=1, max_epochs=1000, default_root_dir=args.model_dir,
+                accumulate_grad_batches=training_configs.accumulate_grad_batches,
                 # distributed_backend="dpp",
                 early_stop_callback=early_stop_callback,
                 checkpoint_callback=checkpoint_callback
