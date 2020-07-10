@@ -423,7 +423,7 @@ class _BaseRetriever(Dataset):
         image = cv2.imread(image_path, cv2.IMREAD_COLOR)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB).astype(np.float32)
         if self.transforms:
-            sample = {'image': image / 255.}
+            sample = {'image': image}
             sample = self.transforms(**sample)
             image = sample['image']
 
@@ -589,6 +589,9 @@ augment_methods = {
     "InvertImg": A.InvertImg,
     "Resize": A.Resize,
     "Normalize": A.Normalize,
+    "Cutout": A.Cutout,
+    "CoarseDropout": A.CoarseDropout,
+    "ToFloat": A.ToFloat,
     "ToTensorV2": ToTensorV2,
 }
 
