@@ -940,7 +940,7 @@ if "__main__" == __name__:
     default_model_arch: str = "efficientnet-b2"
     #
     default_train_configs: str = "../configs/train_baseline.py"
-    default_valid_configs: str = "../configs/train_baseline.py"
+    default_valid_configs: str = "../configs/valid_baseline.py"
     default_test_configs: str = "../configs/test_baseline.py"
     #
     default_n_jobs: int = 8
