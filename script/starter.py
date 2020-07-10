@@ -293,7 +293,8 @@ class Fitter:
 
 class BaseLightningModule(pl.LightningModule):
     def __init__(
-            self, model: nn.Module,
+            self,
+            model: nn.Module,
             training_records: Optional[List[Dict[str, Any]]] = None, training_configs: Optional = None,
             valid_records: Optional[List[Dict[str, Any]]] = None, valid_configs: Optional = None,
             eval_metric_name: str = "val_metric_score", eval_metric_func: Optional[Callable] = None, ):
@@ -859,6 +860,9 @@ def main(args):
                 early_stop_callback=early_stop_callback,
                 checkpoint_callback=checkpoint_callback
             )
+            lr_finder = trainer.lr_find(model)  # pd.DataFrame(lr_finder.results
+            new_lr = lr_finder.suggestion()
+            print(f"optimal learning rate: {new_lr}")
 
             trainer.fit(model)
             model.freeze()
