@@ -1,9 +1,9 @@
 configs = {
-    "num_workers": 8,
+    "num_workers": 4,
     "batch_size": 14,  # efficientnet-b2
 
-    "n_epochs": 5,
-    "lr": .001,
+    "n_epochs": 25,
+    "lr": 1e-6,
 
     "lr_scheduler": "OneCycleLR",
     "scheduler_params": {},

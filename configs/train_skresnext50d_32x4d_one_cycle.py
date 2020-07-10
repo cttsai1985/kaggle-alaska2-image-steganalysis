@@ -1,11 +1,11 @@
 configs = {
-    "num_workers": 4,  # i7-6700k
-    "batch_size": 14,
+    "num_workers": 8,
+    "batch_size": 14,  # efficientnet-b2
 
-    "n_epochs": 25,
-    "lr": 2e-07,
+    "n_epochs": 5,
+    "lr": .001,
 
-    "lr_scheduler": "ReduceLROnPlateau",
+    "lr_scheduler": "OneCycleLR",
     "scheduler_params": {},
 
     "augmentations": [
