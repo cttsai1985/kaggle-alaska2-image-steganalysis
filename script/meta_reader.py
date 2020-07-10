@@ -56,21 +56,25 @@ def main(args):
     list_of_functions: Tuple[str, Callable] = [
         ("mean", np.mean), ("std", np.std), ("kurt", kurtosis), ("skew", skew), ]
 
+    file_path = os.path.join(args.cached_dir, "images_stats_info.parquet")
+    if os.path.exists(file_path) and not args.refresh:
+        print(f"{file_path} exists, skip generates meta info")
+        return False
+
     # process
-    list_all_images: List[str] = list(glob(os.path.join(args.data_dir, "*", "*.jpg")))[:10]
+    list_all_images: List[str] = list(glob(os.path.join(args.data_dir, "*", "*.jpg")))
     df_train = pd.DataFrame({"file_path": list_all_images})
     df_train["image"] = df_train["file_path"].apply(lambda x: os.path.basename(x))
     df_train["kind"] = df_train["file_path"].apply(lambda x: os.path.split(os.path.dirname(x))[-1])
     with Pool(processes=args.n_jobs) as p:
         func = partial(process_image, functions=list_of_functions)
-        df = pd.concat(list(map(func, list_all_images)), axis=1).T
+        df = pd.concat(list(p.map(func, list_all_images)), axis=1).T
         df.columns = [f"{i}_{m}" for m, i in df.columns]
 
     df["image"] = df_train["image"].tolist()
     df["kind"] = df_train["kind"].tolist()
     df.sort_values("image", inplace=True)
 
-    file_path = os.path.join(args.cached_dir, "images_stats_info.parquet")
     df.to_parquet(file_path)
     print(f"{df.describe().T}")
     return
@@ -104,7 +108,7 @@ if "__main__" == __name__:
     parser.add_argument("--model-dir", type=str, default=default_model_dir, help="folder for models")
     parser.add_argument("--data-dir", type=str, default=default_data_dir, help="folder for data")
     #
-    parser.add_argument("--refresh-cache", action="store_true", default=False, help="refresh cached data")
+    parser.add_argument("--refresh", action="store_true", default=False, help="refresh cached data")
     parser.add_argument("--n-jobs", type=int, default=default_n_jobs, help="num worker")
     #
     parser.add_argument('--gpus', default=None)
