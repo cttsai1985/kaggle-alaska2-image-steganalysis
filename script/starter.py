@@ -238,7 +238,7 @@ class Fitter:
                 print(
                     f"Train Step {step}/{len(train_loader)}, summary_loss: {summary_loss.avg:.5f}, final_score: "
                     f"{final_scores.avg:.5f}, time: {(time.time() - t):.5f}",
-                        end="\r"
+                    end="\r"
                     )
 
             targets = targets.to(self.device).float()
@@ -287,8 +287,8 @@ class Fitter:
     def log(self, message):
         if self.config.verbose:
             print(message)
-        with open(self.log_path, 'a+') as logger:
-            logger.write(f'{message}\n')
+        with open(self.log_path, "a+") as logger:
+            logger.write(f"{message}\n")
 
 
 class BaseLightningModule(pl.LightningModule):
@@ -497,9 +497,13 @@ def index_train_test_images(args):
     shared_indices: List[str] = ["image", "kind"]
     file_path_image_quality: str = "image_quality.csv"
 
+    args.file_path_all_images_info = os.path.join(output_dir, "all_images_info.parquet")
     args.file_path_train_images_info = os.path.join(output_dir, "train_images_info.parquet")
     args.file_path_test_images_info = os.path.join(output_dir, "test_images_info.parquet")
-    if os.path.exists(args.file_path_train_images_info) and os.path.exists(args.file_path_test_images_info):
+    file_paths: List[str] = [
+        args.file_path_all_images_info, args.file_path_train_images_info, args.file_path_test_images_info]
+
+    if all([os.path.exists(path) for path in file_paths]):
         if not args.refresh_cache:
             return
 
@@ -525,6 +529,7 @@ def index_train_test_images(args):
 
     print(f"{df_train.nunique()}")
     df_train.sort_values("image", inplace=True)
+    df_train.to_parquet(args.file_path_all_images_info)
     df_train.loc[df_train["label"].notnull()].to_parquet(args.file_path_train_images_info)
     df_train.loc[df_train["label"].isnull()].to_parquet(args.file_path_test_images_info)
     return
@@ -784,9 +789,63 @@ class TestConfigs:
 # Configs Block Ends
 
 
+def split_data(args, splitter):
+    df_train = pd.read_parquet(args.file_path_train_images_info).reset_index()
+    if args.debug:
+        df_train = df_train.iloc[:200]
+
+    df_train["label"] = df_train["label"].astype(np.int32)
+    df = df_train.loc[(~df_train["image"].duplicated(keep="first"))]
+
+    for train_index, valid_index in splitter.split(X=df["label"], y=df["quality"], groups=df["image"]):
+        break
+
+    train_df = df_train.loc[df_train["image"].isin(df["image"].iloc[train_index])]
+    valid_df = df_train.loc[df_train["image"].isin(df["image"].iloc[valid_index])]
+    return train_df, valid_df
+
+
+def training_lightning(args, model: nn.Module):
+    # load_from_checkpoint: not working
+    if args.load_checkpoint and os.path.exists(args.checkpoint_path):
+        checkpoint = torch.load(args.checkpoint_path)
+        model.load_state_dict(checkpoint['state_dict'])
+
+        print(checkpoint["lr_schedulers"])
+        # not working if using
+        # trainer = Trainer(resume_From_checkpoint=args.checkpoint_path)
+        if not args.load_weights_only:
+            model.restored_checkpoint = checkpoint
+
+    # training
+    if not args.inference_only:
+        metric_name: str = f"val_{args.eval_metric}"
+        file_path_checkpoint: str = os.path.join(
+            args.model_dir, "__".join(["result", args.model_arch, "{epoch:03d}-{val_loss:.4f}"]))
+        checkpoint_callback = ModelCheckpoint(
+            filepath=file_path_checkpoint, save_top_k=3, verbose=True, monitor=metric_name, mode="max")
+
+        early_stop_callback = EarlyStopping(
+            monitor=metric_name, min_delta=0., patience=5, verbose=True, mode='max')
+        trainer = Trainer(
+            gpus=args.gpus, min_epochs=1, max_epochs=1000, default_root_dir=args.model_dir,
+            accumulate_grad_batches=model.training_configs.accumulate_grad_batches,
+            # distributed_backend="dpp",
+            early_stop_callback=early_stop_callback,
+            checkpoint_callback=checkpoint_callback
+        )
+        lr_finder = trainer.lr_find(model)  # pd.DataFrame(lr_finder.results
+        new_lr = lr_finder.suggestion()
+        print(f"optimal learning rate: {new_lr}")
+
+        trainer.fit(model)
+        model.freeze()
+
+    return model
+
+
 def main(args):
     args.labels: List[str] = ['Cover', 'JMiPOD', 'JUNIWARD', 'UERD']
-    eval_metric_name: str = "weighted_auc"
 
     seed_everything(args.init_seed)
     index_train_test_images(args)
@@ -811,19 +870,9 @@ def main(args):
         training_configs.loss = LabelSmoothing(smoothing=.05)
 
         # split data
-        df_train = pd.read_parquet(args.file_path_train_images_info).reset_index()
-        if args.debug:
-            df_train = df_train.iloc[:200]
-
-        df_train["label"] = df_train["label"].astype(np.int32)
-        df = df_train.loc[(~df_train["image"].duplicated(keep="first"))]
-
         skf = StratifiedKFold(n_splits=5)
-        for train_index, valid_index in skf.split(X=df["label"], y=df["quality"], groups=df["image"]):
-            break
+        train_df, valid_df = split_data(args=args, splitter=skf)
 
-        train_df = df_train.loc[df_train["image"].isin(df["image"].iloc[train_index])]
-        valid_df = df_train.loc[df_train["image"].isin(df["image"].iloc[valid_index])]
         #
         training_records = process_images_to_records(args, df=train_df)
         valid_records = process_images_to_records(args, df=valid_df)
@@ -832,52 +881,21 @@ def main(args):
     if args.use_lightning:
         model = BaseLightningModule(
             model, training_configs=training_configs, training_records=training_records,
-            valid_configs=validation_configs, valid_records=valid_records, eval_metric_name=eval_metric_name,
+            valid_configs=validation_configs, valid_records=valid_records, eval_metric_name=args.eval_metric,
             eval_metric_func=alaska_weighted_auc)
 
-        # load_from_checkpoint: not working
-        if args.load_checkpoint and os.path.exists(args.checkpoint_path):
-            checkpoint = torch.load(args.checkpoint_path)
-            model.load_state_dict(checkpoint['state_dict'])
-
-            print(checkpoint["lr_schedulers"])
-            # not working if using
-            # trainer = Trainer(resume_From_checkpoint=args.checkpoint_path)
-            if not args.load_weights_only:
-                model.restored_checkpoint = checkpoint
-
-        # training
-        if not args.inference_only:
-            metric_name: str = f"val_{eval_metric_name}"
-            file_path_checkpoint: str = os.path.join(
-                args.model_dir, "__".join(["result", args.model_arch, "{epoch:03d}-{val_loss:.4f}"]))
-            checkpoint_callback = ModelCheckpoint(
-                filepath=file_path_checkpoint, save_top_k=3, verbose=True, monitor=metric_name, mode="max")
-
-            early_stop_callback = EarlyStopping(
-                monitor=metric_name, min_delta=0., patience=5, verbose=True, mode='max')
-            trainer = Trainer(
-                gpus=args.gpus, min_epochs=1, max_epochs=1000, default_root_dir=args.model_dir,
-                accumulate_grad_batches=training_configs.accumulate_grad_batches,
-                # distributed_backend="dpp",
-                early_stop_callback=early_stop_callback,
-                checkpoint_callback=checkpoint_callback
-            )
-            lr_finder = trainer.lr_find(model)  # pd.DataFrame(lr_finder.results
-            new_lr = lr_finder.suggestion()
-            print(f"optimal learning rate: {new_lr}")
-
-            trainer.fit(model)
-            model.freeze()
+        model = training_lightning(args=args, model=model)
+        model.freeze()
 
     # raw
-    model = model.cuda()
-    device = torch.device('cuda:0')
+    if args.gpus is not None:
+        model = model.cuda()
+        device = torch.device('cuda:0')
 
     if not args.inference_only and not args.use_lightning:
         train_dataset = DatasetRetriever(records=training_records, transforms=training_configs.transforms)
-        train_loader = torch.utils.data.DataLoader(
-            DatasetRetriever(records=training_records, transforms=training_configs.transforms),
+        train_loader = DataLoader(
+            train_dataset,
             sampler=BalanceClassSampler(labels=train_dataset.get_labels(), mode="downsampling"),
             batch_size=training_configs.batch_size,
             pin_memory=False,
@@ -885,7 +903,7 @@ def main(args):
             num_workers=training_configs.num_workers,
         )
         validation_dataset = DatasetRetriever(records=valid_records, transforms=training_configs.transforms)
-        val_loader = torch.utils.data.DataLoader(
+        val_loader = DataLoader(
             validation_dataset,
             batch_size=validation_configs.batch_size,
             num_workers=validation_configs.num_workers,
@@ -948,6 +966,9 @@ if "__main__" == __name__:
     #
     default_n_jobs: int = 8
     default_init_seed: int = 42
+    #
+    default_eval_metric_name: str = "weighted_auc"
+
 
     parser = ArgumentParser()
     parser.add_argument("--output-dir", type=str, default=default_output_dir, help="folder for output")
@@ -956,6 +977,7 @@ if "__main__" == __name__:
     parser.add_argument("--model-dir", type=str, default=default_model_dir, help="folder for models")
     parser.add_argument("--data-dir", type=str, default=default_data_dir, help="folder for data")
     #
+    parser.add_argument("--eval-metric", type=str, default=default_eval_metric_name, help="eval metric name")
     parser.add_argument("--model-arch", type=str, default=default_model_arch, help="model arch")
     parser.add_argument("--checkpoint-path", type=str, default=None, help="model checkpoint")
     parser.add_argument("--load-checkpoint", action="store_true", default=False, help="load checkpoint")
