@@ -261,26 +261,26 @@ class Fitter:
     def save(self, path):
         self.model.eval()
         torch.save({
-            'model_state_dict': self.model.state_dict(),
-            'optimizer_state_dict': self.optimizer.state_dict(),
-            'scheduler_state_dict': self.scheduler.state_dict(),
-            'best_summary_loss': self.best_summary_loss,
-            'epoch': self.epoch,
+            "model_state_dict": self.model.state_dict(),
+            "optimizer_state_dict": self.optimizer.state_dict(),
+            "scheduler_state_dict": self.scheduler.state_dict(),
+            "best_summary_loss": self.best_summary_loss,
+            "epoch": self.epoch,
         }, path)
         return self
 
     def load(self, path, model_weights_only: bool = False):
         checkpoint = torch.load(path)
-        self.model.load_state_dict(checkpoint['model_state_dict'])
+        self.model.load_state_dict(checkpoint["model_state_dict"])
         self.model.cuda()
 
         self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.config.lr)
         self.scheduler = self.config.lr_scheduler(self.optimizer, **self.config.scheduler_params)
         if not model_weights_only:
-            self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-            self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
-            self.best_summary_loss = checkpoint['best_summary_loss']
-            self.epoch = checkpoint['epoch'] + 1
+            self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+            self.scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
+            self.best_summary_loss = checkpoint["best_summary_loss"]
+            self.epoch = checkpoint["epoch"] + 1
 
         return self
 
@@ -423,9 +423,9 @@ class _BaseRetriever(Dataset):
         image = cv2.imread(image_path, cv2.IMREAD_COLOR)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB).astype(np.float32)
         if self.transforms:
-            sample = {'image': image}
+            sample = {"image": image}
             sample = self.transforms(**sample)
-            image = sample['image']
+            image = sample["image"]
 
         return image
 
@@ -467,34 +467,10 @@ class SubmissionRetriever(_BaseRetriever):
         return image_kind, image_name, image
 
 
-def inference(dataset: Dataset, configs, model: nn.Module) -> pd.DataFrame:
-    data_loader = DataLoader(
-        dataset, batch_size=configs.batch_size, shuffle=False, num_workers=configs.num_workers, drop_last=False, )
-
-    model.eval()
-    result = {'Id': [], 'Label': []}
-    total_num_batch: int = int(len(dataset) / configs.batch_size)
-    for step, (image_kinds, image_names, images) in enumerate(data_loader):
-        print(
-            f"Test Batch: {step:03d} / {total_num_batch:d}, progress: {100. * step / total_num_batch: .02f} %",
-            end='\r')
-
-        y_pred = model(images.cuda())
-        y_pred = 1. - nn.functional.softmax(y_pred, dim=1).data.cpu().numpy()[:, 0]
-
-        result['Id'].extend(image_names)
-        result['Label'].extend(y_pred)
-
-    submission = pd.DataFrame(result).sort_values("Id").set_index("Id")
-    print(f"\nFinish Test: {submission.shape}, Stats:\n{submission.describe()}\n")
-    return submission
-
-
 def index_train_test_images(args):
     working_dir: str = args.data_dir
     output_dir: str = args.cached_dir
     meta_dir: str = args.meta_dir
-    shared_indices: List[str] = ["image", "kind"]
     file_path_image_quality: str = "image_quality.csv"
 
     args.file_path_all_images_info = os.path.join(output_dir, "all_images_info.parquet")
@@ -510,7 +486,7 @@ def index_train_test_images(args):
     file_path_image_quality = os.path.join(meta_dir, file_path_image_quality)
     df_quality: pd.DataFrame = pd.DataFrame()
     if os.path.exists(file_path_image_quality):
-        df_quality = pd.read_csv(file_path_image_quality).set_index(shared_indices)
+        df_quality = pd.read_csv(file_path_image_quality).set_index(args.shared_indices)
         print(f"read in image quality file: {df_quality.shape}")
     else:
         print(f"image quality not exist: {file_path_image_quality}")
@@ -522,7 +498,7 @@ def index_train_test_images(args):
     df_train["image"] = df_train["file_path"].apply(lambda x: os.path.basename(x))
     df_train["kind"] = df_train["file_path"].apply(lambda x: os.path.split(os.path.dirname(x))[-1])
     df_train["label"] = df_train["kind"].map({kind: label for label, kind in enumerate(args.labels)})
-    df_train.set_index(shared_indices, inplace=True)
+    df_train.set_index(args.shared_indices, inplace=True)
 
     if not df_quality.empty:
         df_train = df_train.join(df_quality["quality"])
@@ -544,7 +520,7 @@ def initialize_configs(filename: str):
     if not os.path.exists(filename):
         raise ValueError("Spec file {spec_file} does not exist".format(spec_file=filename))
 
-    module_name = filename.split(os.sep)[-1].replace('.', '')
+    module_name = filename.split(os.sep)[-1].replace(".", "")
 
     import importlib.util
     spec = importlib.util.spec_from_file_location(module_name, filename)
@@ -692,12 +668,12 @@ class TrainReduceOnPlateauConfigs:
     step_after_validation = True  # do scheduler.step after validation stage loss
     lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau
     scheduler_params = dict(
-        mode='min',
+        mode="min",
         factor=0.5,
         patience=1,
         verbose=True,
         threshold=0.0001,
-        threshold_mode='abs',
+        threshold_mode="abs",
         cooldown=0,
         min_lr=1e-8,
         eps=1e-08
@@ -745,7 +721,7 @@ class TrainOneCycleConfigs:
         epochs=n_epochs,
         steps_per_epoch=30000,  # int(len(train_dataset) / batch_size),
         pct_start=0.1,
-        anneal_strategy='cos',
+        anneal_strategy="cos",
         final_div_factor=10 ** 5
     )
 
@@ -809,7 +785,7 @@ def training_lightning(args, model: nn.Module):
     # load_from_checkpoint: not working
     if args.load_checkpoint and os.path.exists(args.checkpoint_path):
         checkpoint = torch.load(args.checkpoint_path)
-        model.load_state_dict(checkpoint['state_dict'])
+        model.load_state_dict(checkpoint["state_dict"])
 
         print(checkpoint["lr_schedulers"])
         # not working if using
@@ -826,7 +802,7 @@ def training_lightning(args, model: nn.Module):
             filepath=file_path_checkpoint, save_top_k=3, verbose=True, monitor=metric_name, mode="max")
 
         early_stop_callback = EarlyStopping(
-            monitor=metric_name, min_delta=0., patience=5, verbose=True, mode='max')
+            monitor=metric_name, min_delta=0., patience=5, verbose=True, mode="max")
         trainer = Trainer(
             gpus=args.gpus, min_epochs=1, max_epochs=1000, default_root_dir=args.model_dir,
             accumulate_grad_batches=model.training_configs.accumulate_grad_batches,
@@ -845,7 +821,8 @@ def training_lightning(args, model: nn.Module):
 
 
 def main(args):
-    args.labels: List[str] = ['Cover', 'JMiPOD', 'JUNIWARD', 'UERD']
+    args.labels: List[str] = ["Cover", "JMiPOD", "JUNIWARD", "UERD"]
+    args.shared_indices: List[str] = ["image", "kind"]
 
     seed_everything(args.init_seed)
     index_train_test_images(args)
@@ -890,7 +867,7 @@ def main(args):
     # raw
     if args.gpus is not None:
         model = model.cuda()
-        device = torch.device('cuda:0')
+        device = torch.device("cuda:0")
 
     if not args.inference_only and not args.use_lightning:
         train_dataset = DatasetRetriever(records=training_records, transforms=training_configs.transforms)
@@ -915,29 +892,89 @@ def main(args):
         fitter = Fitter(model=model, device=device, config=training_configs)
         if args.load_checkpoint and os.path.exists(args.checkpoint_path):
             fitter.load(args.checkpoint_path, model_weights_only=args.load_weights_only)
-        # fitter.load(f'{fitter.base_dir}/best-checkpoint-024epoch.bin')
+        # fitter.load(f"{fitter.base_dir}/best-checkpoint-024epoch.bin")
         fitter.fit(train_loader, val_loader)
 
     # Test
+    submission = do_inference(args, model=model)
+    if args.inference_proba:
+        import pdb; pdb.set_trace()
+        df = submission.reset_index()[["kinds", "image", "Cover"]]
+        df = df.loc[~df["kinds"].isin(args.labels)]
+        df["Label"] = 1. - df["Label"]
+        score = alaska_weighted_auc(df["kinds"].isin(args.labels[1:]), df["Label"].values)
+
+        file_path = os.path.join(args.cached_dir, f"proba_{args.model_arch}_score_{score:.4f}.parquet")
+        submission.to_parquet(args.file_path_train_images_info)
+
+    else:
+        df = submission.reset_index()[["image", "Cover"]]
+        df.columns = ["Id", "Label"]
+        df.set_index("Id", inplace=True)
+        df["Label"] = 1. - df["Label"]
+        df.to_csv("submission.csv", index=True)
+        print(f"\nSubmission Stats:\n{df.describe()}\nSubmission:\n{df.head()}")
+
+    return
+
+
+def inference_proba(args, configs, dataset: Dataset, model: nn.Module) -> pd.DataFrame:
+    data_loader = DataLoader(
+        dataset, batch_size=configs.batch_size, shuffle=False, num_workers=configs.num_workers, drop_last=False, )
+
+    model.eval()
+    outputs = list()
+    result = {k: list() for k in args.shared_indices}
+    total_num_batch: int = int(len(dataset) / configs.batch_size)
+    for step, (image_kinds, image_names, images) in enumerate(data_loader):
+        print(
+            f"Test Batch Proba: {step:03d} / {total_num_batch:d}, progress: {100. * step / total_num_batch: .02f} %",
+            end="\r")
+
+        result["image"].extend(image_names)
+        result["kind"].extend(image_kinds)
+        outputs.append(nn.functional.softmax(model(images.cuda()), dim=1).data.cpu())
+
+    submission = pd.DataFrame(result)
+    y_pred = pd.DataFrame(torch.cat(outputs, dim=0).numpy(), columns=args.labels)
+    submission = pd.concat([submission, y_pred], axis=1).set_index(args.shared_indices).sort_index()
+
+    print(f"\nFinish Test Proba: {submission.shape}, Stats:\n{submission.describe()}\n")
+    return submission
+
+
+def do_evaluate(submission: pd.DataFrame) -> float:
+    df = submission.reset_index()[["kinds", "image", "Cover"]]
+    df = df.loc[~df["kinds"].isin(args.labels)]
+    df["Label"] = 1. - df["Label"]
+    return alaska_weighted_auc(df["kinds"].isin(args.labels[1:]), df["Label"].values)
+
+
+def do_inference(args, model: nn.Module):
     test_configs = BaseConfigs.from_file(file_path=args.test_configs)
     df_test = pd.read_parquet(args.file_path_test_images_info).reset_index()
+    if args.inference_proba:
+        df_test = pd.read_parquet(args.file_path_all_images_info).reset_index()
+
+    test_records = process_images_to_records(args, df=df_test)
     if args.tta:
         collect = list()
         for i, tta in enumerate(test_configs.tta_transforms, 1):
             print(f"TTA: {i:02d} / {len(test_configs.tta_transforms):02d} rounds")
-            dataset = SubmissionRetriever(records=process_images_to_records(args, df=df_test), transforms=tta, )
-            submission = inference(dataset=dataset, configs=test_configs, model=model)
-            collect.append(submission)
+            dataset = SubmissionRetriever(records=test_records, transforms=tta, )
+            df = inference_proba(args, test_configs, dataset=dataset, model=model)
+            collect.append(df)
 
-        submission = pd.concat(collect, ).groupby(level=-1).mean()
+            score = do_evaluate(df)
+            print(f"TTA: {i:02d} / {len(test_configs.tta_transforms):02d} rounds: {score:.04f}")
+
+        df = pd.concat(collect, ).groupby(level=args.shared_indices).mean()
+
     else:
-        dataset = SubmissionRetriever(
-            records=process_images_to_records(args, df=df_test), transforms=test_configs.transforms, )
-        submission = inference(dataset=dataset, configs=test_configs, model=model)
+        dataset = SubmissionRetriever(records=test_records, transforms=test_configs.transforms, )
+        df = inference_proba(args, test_configs, dataset=dataset, model=model)
 
-    submission.to_csv('submission.csv', index=True)
-    print(f"\nSubmission:\n{submission.head()}")
-    return
+    return df
 
 
 def safe_mkdir(directory: str) -> bool:
@@ -988,13 +1025,14 @@ if "__main__" == __name__:
     parser.add_argument("--test-configs", type=str, default=default_test_configs, help="configs for test")
     # functional
     parser.add_argument("--tta", action="store_true", default=False, help="perform test time augmentation")
+    parser.add_argument("--inference-proba", action="store_true", default=False, help="only perform inference proba")
     parser.add_argument("--inference-only", action="store_true", default=False, help="only perform inference")
     parser.add_argument("--use-lightning", action="store_true", default=False, help="using lightning trainer")
     parser.add_argument("--refresh-cache", action="store_true", default=False, help="refresh cached data")
     parser.add_argument("--n-jobs", type=int, default=default_n_jobs, help="num worker")
     parser.add_argument("--init-seed", type=int, default=default_init_seed, help="initialize random seed")
     #
-    parser.add_argument('--gpus', default=None)
+    parser.add_argument("--gpus", default=None)
     # debug
     parser.add_argument("--debug", action="store_true", default=False, help="debug")
     args = parser.parse_args()
