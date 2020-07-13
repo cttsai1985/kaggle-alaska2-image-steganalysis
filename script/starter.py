@@ -239,7 +239,7 @@ class Fitter:
                     f"Train Step {step}/{len(train_loader)}, summary_loss: {summary_loss.avg:.5f}, final_score: "
                     f"{final_scores.avg:.5f}, time: {(time.time() - t):.5f}",
                     end="\r"
-                    )
+                )
 
             targets = targets.to(self.device).float()
             images = images.to(self.device).float()
@@ -467,6 +467,8 @@ class SubmissionRetriever(_BaseRetriever):
         return image_kind, image_name, image
 
 
+# Main Function Block
+########################################################################################################################
 def index_train_test_images(args):
     working_dir: str = args.data_dir
     output_dir: str = args.cached_dir
@@ -514,6 +516,122 @@ def index_train_test_images(args):
 def process_images_to_records(args, df: pd.DataFrame) -> List[Dict[str, Any]]:
     df["file_path"] = df.apply(lambda x: os.path.join(args.data_dir, x["kind"], x["image"]), axis=1)
     return df.to_dict("record")
+
+
+def split_data(args, splitter):
+    df_train = pd.read_parquet(args.file_path_train_images_info).reset_index()
+    if args.debug:
+        df_train = df_train.iloc[:200]
+
+    df_train["label"] = df_train["label"].astype(np.int32)
+    df = df_train.loc[(~df_train["image"].duplicated(keep="first"))]
+
+    for train_index, valid_index in splitter.split(X=df["label"], y=df["quality"], groups=df["image"]):
+        break
+
+    train_df = df_train.loc[df_train["image"].isin(df["image"].iloc[train_index])]
+    valid_df = df_train.loc[df_train["image"].isin(df["image"].iloc[valid_index])]
+    return train_df, valid_df
+
+
+def training_lightning(args, model: nn.Module):
+    # load_from_checkpoint: not working
+    if args.load_checkpoint and os.path.exists(args.checkpoint_path):
+        checkpoint = torch.load(args.checkpoint_path)
+        model.load_state_dict(checkpoint["state_dict"])
+
+        print(checkpoint["lr_schedulers"])
+        # not working if using
+        # trainer = Trainer(resume_From_checkpoint=args.checkpoint_path)
+        if not args.load_weights_only:
+            model.restored_checkpoint = checkpoint
+
+    # training
+    if not args.inference_only:
+        metric_name: str = f"val_{args.eval_metric}"
+        file_path_checkpoint: str = os.path.join(
+            args.model_dir, "__".join(["result", args.model_arch, "{epoch:03d}-{val_loss:.4f}"]))
+        checkpoint_callback = ModelCheckpoint(
+            filepath=file_path_checkpoint, save_top_k=3, verbose=True, monitor=metric_name, mode="max")
+
+        early_stop_callback = EarlyStopping(
+            monitor=metric_name, min_delta=0., patience=5, verbose=True, mode="max")
+        trainer = Trainer(
+            gpus=args.gpus, min_epochs=1, max_epochs=1000, default_root_dir=args.model_dir,
+            accumulate_grad_batches=model.training_configs.accumulate_grad_batches,
+            # distributed_backend="dpp",
+            early_stop_callback=early_stop_callback,
+            checkpoint_callback=checkpoint_callback
+        )
+        lr_finder = trainer.lr_find(model)  # pd.DataFrame(lr_finder.results
+        new_lr = lr_finder.suggestion()
+        print(f"optimal learning rate: {new_lr}")
+
+        trainer.fit(model)
+        model.freeze()
+
+    return model
+
+
+def inference_proba(args, configs, dataset: Dataset, model: nn.Module) -> pd.DataFrame:
+    data_loader = DataLoader(
+        dataset, batch_size=configs.batch_size, shuffle=False, num_workers=configs.num_workers, drop_last=False, )
+
+    model.eval()
+    outputs = list()
+    result = {k: list() for k in args.shared_indices}
+    total_num_batch: int = int(len(dataset) / configs.batch_size)
+    for step, (image_kinds, image_names, images) in enumerate(data_loader):
+        print(
+            f"Test Batch Proba: {step:03d} / {total_num_batch:d}, progress: {100. * step / total_num_batch: .02f} %",
+            end="\r")
+
+        result["image"].extend(image_names)
+        result["kind"].extend(image_kinds)
+        outputs.append(nn.functional.softmax(model(images.cuda()), dim=1).data.cpu())
+
+    y_pred = pd.DataFrame(torch.cat(outputs, dim=0).numpy(), columns=args.labels)
+    submission = pd.concat([pd.DataFrame(result), y_pred], axis=1).set_index(args.shared_indices).sort_index()
+
+    print(f"\nFinish Test Proba: {submission.shape}, Stats:\n{submission.describe()}")
+    return submission
+
+
+def do_evaluate(submission: pd.DataFrame, label: str = "Cover") -> float:
+    df = submission.reset_index()[["kind", "image", label]]
+    df = df.loc[df["kind"].isin(args.labels)]
+    df["Label"] = 1. - df[label]
+    return alaska_weighted_auc(df["kind"].isin(args.labels[1:]), df["Label"].values)
+
+
+def do_inference(args, model: nn.Module):
+    test_configs = BaseConfigs.from_file(file_path=args.test_configs)
+    df_test = pd.read_parquet(args.file_path_test_images_info).reset_index()
+    if args.inference_proba:
+        df_test = pd.read_parquet(args.file_path_all_images_info).reset_index()
+
+    if args.debug:
+        df_test = df_test.iloc[:2000]  # sample(n=2000, random_state=42)
+
+    test_records = process_images_to_records(args, df=df_test)
+    if args.tta:
+        collect = list()
+        for i, tta in enumerate(test_configs.tta_transforms, 1):
+            print(f"Inference TTA: {i:02d} / {len(test_configs.tta_transforms):02d} rounds")
+            dataset = SubmissionRetriever(records=test_records, transforms=tta, )
+            df = inference_proba(args, test_configs, dataset=dataset, model=model)
+            collect.append(df)
+
+            score = do_evaluate(df)
+            print(f"Inference TTA: {i:02d} / {len(test_configs.tta_transforms):02d} rounds: {score:.04f}")
+
+        df = pd.concat(collect, ).groupby(level=args.shared_indices).mean()
+        print(f"\nFinish Test Proba: {df.shape}, Stats:\n{df.describe()}")
+        return df
+
+    dataset = SubmissionRetriever(records=test_records, transforms=test_configs.transforms, )
+    df = inference_proba(args, test_configs, dataset=dataset, model=model)
+    return df
 
 
 def initialize_configs(filename: str):
@@ -765,61 +883,6 @@ class TestConfigs:
 # Configs Block Ends
 
 
-def split_data(args, splitter):
-    df_train = pd.read_parquet(args.file_path_train_images_info).reset_index()
-    if args.debug:
-        df_train = df_train.iloc[:200]
-
-    df_train["label"] = df_train["label"].astype(np.int32)
-    df = df_train.loc[(~df_train["image"].duplicated(keep="first"))]
-
-    for train_index, valid_index in splitter.split(X=df["label"], y=df["quality"], groups=df["image"]):
-        break
-
-    train_df = df_train.loc[df_train["image"].isin(df["image"].iloc[train_index])]
-    valid_df = df_train.loc[df_train["image"].isin(df["image"].iloc[valid_index])]
-    return train_df, valid_df
-
-
-def training_lightning(args, model: nn.Module):
-    # load_from_checkpoint: not working
-    if args.load_checkpoint and os.path.exists(args.checkpoint_path):
-        checkpoint = torch.load(args.checkpoint_path)
-        model.load_state_dict(checkpoint["state_dict"])
-
-        print(checkpoint["lr_schedulers"])
-        # not working if using
-        # trainer = Trainer(resume_From_checkpoint=args.checkpoint_path)
-        if not args.load_weights_only:
-            model.restored_checkpoint = checkpoint
-
-    # training
-    if not args.inference_only:
-        metric_name: str = f"val_{args.eval_metric}"
-        file_path_checkpoint: str = os.path.join(
-            args.model_dir, "__".join(["result", args.model_arch, "{epoch:03d}-{val_loss:.4f}"]))
-        checkpoint_callback = ModelCheckpoint(
-            filepath=file_path_checkpoint, save_top_k=3, verbose=True, monitor=metric_name, mode="max")
-
-        early_stop_callback = EarlyStopping(
-            monitor=metric_name, min_delta=0., patience=5, verbose=True, mode="max")
-        trainer = Trainer(
-            gpus=args.gpus, min_epochs=1, max_epochs=1000, default_root_dir=args.model_dir,
-            accumulate_grad_batches=model.training_configs.accumulate_grad_batches,
-            # distributed_backend="dpp",
-            early_stop_callback=early_stop_callback,
-            checkpoint_callback=checkpoint_callback
-        )
-        lr_finder = trainer.lr_find(model)  # pd.DataFrame(lr_finder.results
-        new_lr = lr_finder.suggestion()
-        print(f"optimal learning rate: {new_lr}")
-
-        trainer.fit(model)
-        model.freeze()
-
-    return model
-
-
 def main(args):
     args.labels: List[str] = ["Cover", "JMiPOD", "JUNIWARD", "UERD"]
     args.shared_indices: List[str] = ["image", "kind"]
@@ -897,17 +960,13 @@ def main(args):
 
     # Test
     submission = do_inference(args, model=model)
+    score = do_evaluate(submission)
     if args.inference_proba:
-        import pdb; pdb.set_trace()
-        df = submission.reset_index()[["kinds", "image", "Cover"]]
-        df = df.loc[~df["kinds"].isin(args.labels)]
-        df["Label"] = 1. - df["Label"]
-        score = alaska_weighted_auc(df["kinds"].isin(args.labels[1:]), df["Label"].values)
-
-        file_path = os.path.join(args.cached_dir, f"proba_{args.model_arch}_score_{score:.4f}.parquet")
-        submission.to_parquet(args.file_path_train_images_info)
-
+        print(f"Inference TTA: {score:.04f}")
+        file_path = os.path.join(args.cached_dir, f"proba__arch_{args.model_arch}__metric_{score:.4f}.parquet")
+        submission.to_parquet(file_path)
     else:
+        print(f"Inference: {score:.04f}")
         df = submission.reset_index()[["image", "Cover"]]
         df.columns = ["Id", "Label"]
         df.set_index("Id", inplace=True)
@@ -916,65 +975,6 @@ def main(args):
         print(f"\nSubmission Stats:\n{df.describe()}\nSubmission:\n{df.head()}")
 
     return
-
-
-def inference_proba(args, configs, dataset: Dataset, model: nn.Module) -> pd.DataFrame:
-    data_loader = DataLoader(
-        dataset, batch_size=configs.batch_size, shuffle=False, num_workers=configs.num_workers, drop_last=False, )
-
-    model.eval()
-    outputs = list()
-    result = {k: list() for k in args.shared_indices}
-    total_num_batch: int = int(len(dataset) / configs.batch_size)
-    for step, (image_kinds, image_names, images) in enumerate(data_loader):
-        print(
-            f"Test Batch Proba: {step:03d} / {total_num_batch:d}, progress: {100. * step / total_num_batch: .02f} %",
-            end="\r")
-
-        result["image"].extend(image_names)
-        result["kind"].extend(image_kinds)
-        outputs.append(nn.functional.softmax(model(images.cuda()), dim=1).data.cpu())
-
-    submission = pd.DataFrame(result)
-    y_pred = pd.DataFrame(torch.cat(outputs, dim=0).numpy(), columns=args.labels)
-    submission = pd.concat([submission, y_pred], axis=1).set_index(args.shared_indices).sort_index()
-
-    print(f"\nFinish Test Proba: {submission.shape}, Stats:\n{submission.describe()}\n")
-    return submission
-
-
-def do_evaluate(submission: pd.DataFrame) -> float:
-    df = submission.reset_index()[["kinds", "image", "Cover"]]
-    df = df.loc[~df["kinds"].isin(args.labels)]
-    df["Label"] = 1. - df["Label"]
-    return alaska_weighted_auc(df["kinds"].isin(args.labels[1:]), df["Label"].values)
-
-
-def do_inference(args, model: nn.Module):
-    test_configs = BaseConfigs.from_file(file_path=args.test_configs)
-    df_test = pd.read_parquet(args.file_path_test_images_info).reset_index()
-    if args.inference_proba:
-        df_test = pd.read_parquet(args.file_path_all_images_info).reset_index()
-
-    test_records = process_images_to_records(args, df=df_test)
-    if args.tta:
-        collect = list()
-        for i, tta in enumerate(test_configs.tta_transforms, 1):
-            print(f"TTA: {i:02d} / {len(test_configs.tta_transforms):02d} rounds")
-            dataset = SubmissionRetriever(records=test_records, transforms=tta, )
-            df = inference_proba(args, test_configs, dataset=dataset, model=model)
-            collect.append(df)
-
-            score = do_evaluate(df)
-            print(f"TTA: {i:02d} / {len(test_configs.tta_transforms):02d} rounds: {score:.04f}")
-
-        df = pd.concat(collect, ).groupby(level=args.shared_indices).mean()
-
-    else:
-        dataset = SubmissionRetriever(records=test_records, transforms=test_configs.transforms, )
-        df = inference_proba(args, test_configs, dataset=dataset, model=model)
-
-    return df
 
 
 def safe_mkdir(directory: str) -> bool:
@@ -1005,7 +1005,6 @@ if "__main__" == __name__:
     default_init_seed: int = 42
     #
     default_eval_metric_name: str = "weighted_auc"
-
 
     parser = ArgumentParser()
     parser.add_argument("--output-dir", type=str, default=default_output_dir, help="folder for output")
