@@ -37,7 +37,7 @@ def main(args: ArgumentParser):
         safe_mkdir(dir_path)
 
     args = configure_arguments(args)
-    file_path = args.file_path_images_stats
+    file_path: str = args.file_path_images_stats
     if os.path.exists(file_path) and not args.refresh:
         print(f"{file_path} exists, skip generates meta info")
         return False
@@ -45,10 +45,14 @@ def main(args: ArgumentParser):
     # process
     list_of_functions: List[Tuple[str, Callable]] = [
         ("mean", np.mean), ("std", np.std), ("kurt", kurtosis), ("skew", skew), ]
+    # file path
     list_all_images: List[str] = list(glob(os.path.join(args.data_dir, "*", "*.jpg")))
+    if args.debug:
+        list_all_images = list_all_images[:100]
+
     with Pool(processes=args.n_jobs) as p:
         func = partial(process_image, functions=list_of_functions)
-        df = pd.concat(list(p.map(func, list_all_images)), axis=1).T.astype(np.float32)
+        df = pd.concat(list(p.map(func, list_all_images)), axis=1).astype(np.float32).T
         df.columns = [f"{i}_{m}" for m, i in df.columns]
 
     df_train = parse_image_to_dir_basename(args, list_all_images, column="file_path")
@@ -73,7 +77,7 @@ if "__main__" == __name__:
     default_model_dir: str = "../input/alaska2-image-steganalysis-models/"
     default_data_dir: str = "../input/alaska2-image-steganalysis/"
     #
-    default_n_jobs: int = 1
+    default_n_jobs: int = 8
     default_init_seed: int = 42
 
     parser = ArgumentParser()

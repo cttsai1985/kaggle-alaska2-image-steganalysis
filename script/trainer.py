@@ -1,5 +1,4 @@
 import os
-import random
 import sys
 import time
 import warnings
@@ -35,21 +34,11 @@ sys.path.append(EXTERNAL_UTILS_LIB)
 
 from alaska_utils import alaska_weighted_auc
 from alaska_utils import safe_mkdir
+from alaska_utils import seed_everything
 from alaska_utils import initialize_configs
 from alaska_utils import split_train_valid_data
 from alaska_utils import configure_arguments
 from alaska_utils import index_train_test_images
-
-
-def seed_everything(seed: int = 42):
-    random.seed(seed)
-    os.environ["PYTHONHASHSEED"] = str(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed(seed)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = True
-    return
 
 
 def post_processing_inference(y_true, y_pred) -> Tuple[np.array, np.array]:
@@ -462,7 +451,6 @@ class SubmissionRetriever(_BaseRetriever):
 ########################################################################################################################
 
 
-
 def process_images_to_records(args: ArgumentParser, df: pd.DataFrame) -> List[Dict[str, Any]]:
     image, kind = args.shared_indices
     df["file_path"] = df.apply(lambda x: os.path.join(args.data_dir, x[kind], x[image]), axis=1)
@@ -536,6 +524,9 @@ def do_evaluate(args: ArgumentParser, submission: pd.DataFrame, label: str = "Co
     image, kind = args.shared_indices
     df = submission.reset_index()[[kind, image, label]]
     df = df.loc[df[kind].isin(args.labels)]
+    if df.empty:
+        return 0.
+
     df["Label"] = 1. - df[label]
     return alaska_weighted_auc(df[kind].isin(args.labels[1:]), df["Label"].values)
 
@@ -558,8 +549,9 @@ def do_inference(args: ArgumentParser, model: nn.Module):
             df = inference_proba(args, test_configs, dataset=dataset, model=model)
             collect.append(df)
 
-            score = do_evaluate(args, df)
-            print(f"Inference TTA: {i:02d} / {len(test_configs.tta_transforms):02d} rounds: {score:.04f}")
+            if args.inference_proba:
+                score = do_evaluate(args, df)
+                print(f"Inference TTA: {i:02d} / {len(test_configs.tta_transforms):02d} rounds: {score:.04f}")
 
         df = pd.concat(collect, ).groupby(level=args.shared_indices).mean()
         print(f"\nFinish Test Proba: {df.shape}, Stats:\n{df.describe()}")
@@ -716,7 +708,7 @@ def main(args: ArgumentParser):
     training_records = list()
     valid_records = list()
     if not args.inference_only:
-        train_df, valid_df = split_train_valid_data(args=args, splitter=StratifiedKFold(n_splits=5), nr_fold=0)
+        train_df, valid_df = split_train_valid_data(args=args, splitter=StratifiedKFold(n_splits=5), nr_fold=1)
         training_records = process_images_to_records(args, df=train_df)
         valid_records = process_images_to_records(args, df=valid_df)
 
@@ -763,14 +755,14 @@ def main(args: ArgumentParser):
 
     # Test
     submission = do_inference(args, model=model)
-    score = do_evaluate(args, submission)
     if args.inference_proba:
+        score = do_evaluate(args, submission)
         print(f"Inference TTA: {score:.04f}")
         file_path = os.path.join(args.cached_dir, f"proba__arch_{args.model_arch}__metric_{score:.4f}.parquet")
         submission.to_parquet(file_path)
     else:
+        print(f"Inference Test:")
         image, kind = args.shared_indices
-        print(f"Inference: {score:.04f}")
         df = submission.reset_index()[[image, args.labels[0]]]
         df.columns = ["Id", "Label"]
         df.set_index("Id", inplace=True)
