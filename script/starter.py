@@ -961,14 +961,15 @@ def main(args):
 
     # Test
     submission = do_inference(args, model=model)
-    score = do_evaluate(submission)
     if args.inference_proba:
+        score = do_evaluate(args, submission)
         print(f"Inference TTA: {score:.04f}")
         file_path = os.path.join(args.cached_dir, f"proba__arch_{args.model_arch}__metric_{score:.4f}.parquet")
         submission.to_parquet(file_path)
     else:
-        print(f"Inference: {score:.04f}")
-        df = submission.reset_index()[["image", "Cover"]]
+        print(f"Inference Test:")
+        image, kind = args.shared_indices
+        df = submission.reset_index()[[image, args.labels[0]]]
         df.columns = ["Id", "Label"]
         df.set_index("Id", inplace=True)
         df["Label"] = 1. - df["Label"]
