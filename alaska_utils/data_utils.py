@@ -18,13 +18,25 @@ def configure_arguments(args: ArgumentParser) -> ArgumentParser:
     args.file_path_train_images_info = os.path.join(args.cached_dir, "train_images_info.parquet")
     args.file_path_test_images_info = os.path.join(args.cached_dir, "test_images_info.parquet")
 
+    args.file_path_images_stats = os.path.join(args.cached_dir, "images_stats_info.parquet")
+
+    file_path_image_quality: str = "image_quality.csv"
+    args.file_path_image_quality = os.path.join(args.meta_dir, file_path_image_quality)
     return args
+
+
+def parse_image_to_dir_basename(
+        args: ArgumentParser, list_all_images: List[str], column: str = "file_path") -> pd.DataFrame:
+    image, kind = args.shared_indices
+    df = pd.DataFrame({column: list_all_images})
+    df[image] = df[column].apply(lambda x: os.path.basename(x))
+    df[kind] = df[column].apply(lambda x: os.path.split(os.path.dirname(x))[-1])
+    df.drop(columns=[column], inplace=True)
+    return df
 
 
 def index_train_test_images(args: ArgumentParser):
     image, kind = args.shared_indices
-
-    file_path_image_quality: str = "image_quality.csv"
 
     file_paths: List[str] = [
         args.file_path_all_images_info, args.file_path_train_images_info, args.file_path_test_images_info]
@@ -33,8 +45,8 @@ def index_train_test_images(args: ArgumentParser):
         if not args.refresh_cache:
             return
 
-    file_path_image_quality = os.path.join(args.meta_dir, file_path_image_quality)
     df_quality: pd.DataFrame = pd.DataFrame()
+    file_path_image_quality = args.args.file_path_image_quality
     if os.path.exists(file_path_image_quality):
         df_quality = pd.read_csv(file_path_image_quality).set_index(args.shared_indices)
         print(f"read in image quality file: {df_quality.shape}")
@@ -43,11 +55,8 @@ def index_train_test_images(args: ArgumentParser):
 
     # process
     list_all_images: List[str] = list(glob(os.path.join(args.data_dir, "*", "*.jpg")))
-    df_train = pd.DataFrame({"file_path": list_all_images})
-    df_train[image] = df_train["file_path"].apply(lambda x: os.path.basename(x))
-    df_train[kind] = df_train["file_path"].apply(lambda x: os.path.split(os.path.dirname(x))[-1])
+    df_train = parse_image_to_dir_basename(args, list_all_images, column="file_path")
     df_train[args.col_enum_class] = df_train[kind].map({kind: label for label, kind in enumerate(args.labels)})
-    df_train.drop(columns=["file_path"], inplace=True)
     df_train.set_index(args.shared_indices, inplace=True)
 
     if not df_quality.empty:

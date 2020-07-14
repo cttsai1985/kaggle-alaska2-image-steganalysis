@@ -1,10 +1,11 @@
 import os
+import sys
 import warnings
 from argparse import ArgumentParser
 from functools import partial
 from glob import glob
 from multiprocessing import Pool
-from typing import List, Callable, Tuple, Dict
+from typing import List, Callable, Tuple, Union
 
 import cv2
 import numpy as np
@@ -12,12 +13,16 @@ import pandas as pd
 from scipy.stats import kurtosis, skew
 
 warnings.filterwarnings("ignore")
+
+EXTERNAL_UTILS_LIB = "../alaska_utils"
+sys.path.append(EXTERNAL_UTILS_LIB)
+
 from alaska_utils import safe_mkdir
 from alaska_utils import configure_arguments
-from alaska_utils import get_all_images
+from alaska_utils import parse_image_to_dir_basename
 
 
-def process_image(image_file_path: str, functions: Tuple[str, Callable], ) -> Dict[str, pd.Series]:
+def process_image(image_file_path: str, functions: Tuple[str, Callable], ) -> Union[pd.Series, pd.DataFrame]:
     image = cv2.imread(image_file_path, cv2.IMREAD_COLOR)
     image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB).astype(np.float32)
     tmp = {name: [func(image[:, :, i].flatten()) for i in range(image.shape[-1])] for name, func in functions}
@@ -38,15 +43,17 @@ def main(args: ArgumentParser):
         return False
 
     # process
-    list_of_functions: Tuple[str, Callable] = [
+    list_of_functions: List[Tuple[str, Callable]] = [
         ("mean", np.mean), ("std", np.std), ("kurt", kurtosis), ("skew", skew), ]
     list_all_images: List[str] = list(glob(os.path.join(args.data_dir, "*", "*.jpg")))
-    df_train = get_all_images(args, list_all_images, column="file_path")
     with Pool(processes=args.n_jobs) as p:
         func = partial(process_image, functions=list_of_functions)
         df = pd.concat(list(p.map(func, list_all_images)), axis=1).T.astype(np.float32)
         df.columns = [f"{i}_{m}" for m, i in df.columns]
 
+    df_train = parse_image_to_dir_basename(args, list_all_images, column="file_path")
+
+    # compose return dataframe
     image, kind = args.shared_indices
     df[image] = df_train[image].tolist()
     df[kind] = df_train[kind].tolist()
@@ -54,7 +61,7 @@ def main(args: ArgumentParser):
     df.set_index(args.shared_indices, inplace=True)
 
     df.to_parquet(file_path)
-    print(f"{df.describe().T}")
+    print(f"Save stats to: {file_path}\n{df.describe().T}")
     return
 
 
@@ -78,8 +85,6 @@ if "__main__" == __name__:
     #
     parser.add_argument("--refresh", action="store_true", default=False, help="refresh cached data")
     parser.add_argument("--n-jobs", type=int, default=default_n_jobs, help="num worker")
-    #
-    parser.add_argument('--gpus', default=None)
     # debug
     parser.add_argument("--debug", action="store_true", default=False, help="debug")
     args = parser.parse_args()
