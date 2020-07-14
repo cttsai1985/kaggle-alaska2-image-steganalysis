@@ -500,12 +500,13 @@ def index_train_test_images(args):
     df_train["image"] = df_train["file_path"].apply(lambda x: os.path.basename(x))
     df_train["kind"] = df_train["file_path"].apply(lambda x: os.path.split(os.path.dirname(x))[-1])
     df_train["label"] = df_train["kind"].map({kind: label for label, kind in enumerate(args.labels)})
+    df_train.drop(columns=["file_path"], inplace=True)
     df_train.set_index(args.shared_indices, inplace=True)
 
     if not df_quality.empty:
         df_train = df_train.join(df_quality["quality"])
 
-    print(f"{df_train.nunique()}")
+    print(f"Columns: {df_train.columns.tolist()}, N Uniques:\n{df_train.nunique()}")
     df_train.sort_values("image", inplace=True)
     df_train.to_parquet(args.file_path_all_images_info)
     df_train.loc[df_train["label"].notnull()].to_parquet(args.file_path_train_images_info)
