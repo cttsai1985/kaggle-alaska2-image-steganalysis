@@ -449,50 +449,42 @@ class SubmissionRetriever(_BaseRetriever):
 
 # Main Function Block
 ########################################################################################################################
-
-
 def process_images_to_records(args: ArgumentParser, df: pd.DataFrame) -> List[Dict[str, Any]]:
     image, kind = args.shared_indices
     df["file_path"] = df.apply(lambda x: os.path.join(args.data_dir, x[kind], x[image]), axis=1)
     return df.to_dict("record")
 
 
-def training_lightning(args: ArgumentParser, model: nn.Module) -> nn.Module:
-    # load_from_checkpoint: not working
-    if args.load_checkpoint and os.path.exists(args.checkpoint_path):
-        checkpoint = torch.load(args.checkpoint_path)
-        model.load_state_dict(checkpoint["state_dict"])
-
+def training_lightning(args: ArgumentParser, model: nn.Module, checkpoint: Optional = None) -> nn.Module:
+    if checkpoint is not None:
         print(checkpoint["lr_schedulers"])
+        # load_from_checkpoint: not working
         # not working if using
         # trainer = Trainer(resume_From_checkpoint=args.checkpoint_path)
         if not args.load_weights_only:
             model.restored_checkpoint = checkpoint
 
     # training
-    if not args.inference_only:
-        metric_name: str = f"val_{args.eval_metric}"
-        file_path_checkpoint: str = os.path.join(
-            args.model_dir, "__".join(["result", args.model_arch, "{epoch:03d}-{val_loss:.4f}"]))
-        checkpoint_callback = ModelCheckpoint(
-            filepath=file_path_checkpoint, save_top_k=3, verbose=True, monitor=metric_name, mode="max")
+    metric_name: str = f"val_{args.eval_metric}"
+    file_path_checkpoint: str = os.path.join(
+        args.model_dir, "__".join(["result", args.model_arch, "{epoch:03d}-{val_loss:.4f}"]))
+    checkpoint_callback = ModelCheckpoint(
+        filepath=file_path_checkpoint, save_top_k=3, verbose=True, monitor=metric_name, mode="max")
 
-        early_stop_callback = EarlyStopping(
-            monitor=metric_name, min_delta=0., patience=5, verbose=True, mode="max")
-        trainer = Trainer(
-            gpus=args.gpus, min_epochs=1, max_epochs=1000, default_root_dir=args.model_dir,
-            accumulate_grad_batches=model.training_configs.accumulate_grad_batches,
-            # distributed_backend="dpp",
-            early_stop_callback=early_stop_callback,
-            checkpoint_callback=checkpoint_callback
-        )
-        lr_finder = trainer.lr_find(model)  # pd.DataFrame(lr_finder.results
-        new_lr = lr_finder.suggestion()
-        print(f"optimal learning rate: {new_lr}")
-
-        trainer.fit(model)
-        model.freeze()
-
+    early_stop_callback = EarlyStopping(
+        monitor=metric_name, min_delta=0., patience=5, verbose=True, mode="max")
+    trainer = Trainer(
+        gpus=args.gpus, min_epochs=1, max_epochs=1000, default_root_dir=args.model_dir,
+        accumulate_grad_batches=model.training_configs.accumulate_grad_batches,
+        # distributed_backend="dpp",
+        early_stop_callback=early_stop_callback,
+        checkpoint_callback=checkpoint_callback
+    )
+    lr_finder = trainer.lr_find(model)  # pd.DataFrame(lr_finder.results
+    new_lr = lr_finder.suggestion()
+    print(f"optimal learning rate: {new_lr}")
+    trainer.fit(model)
+    model.freeze()
     return model
 
 
@@ -520,18 +512,19 @@ def inference_proba(args: ArgumentParser, configs, dataset: Dataset, model: nn.M
     return submission
 
 
-def do_evaluate(args: ArgumentParser, submission: pd.DataFrame, label: str = "Cover") -> float:
+def do_evaluate(
+        args: ArgumentParser, submission: pd.DataFrame, eval_metric_func: Callable, label: str = "Cover") -> float:
     image, kind = args.shared_indices
     df = submission.reset_index()[[kind, image, label]]
     df = df.loc[df[kind].isin(args.labels)]
     if df.empty:
+        print(f"Warning: No Ground Truth to evaluate; Return 0")
         return 0.
 
-    df["Label"] = 1. - df[label]
-    return alaska_weighted_auc(df[kind].isin(args.labels[1:]), df["Label"].values)
+    return eval_metric_func(df[kind].isin(args.labels[1:]).values, (1. - df[label]).values)
 
 
-def do_inference(args: ArgumentParser, model: nn.Module):
+def do_inference(args: ArgumentParser, model: nn.Module, eval_metric_func: Optional[Callable] = None):
     test_configs = BaseConfigs.from_file(file_path=args.test_configs)
     df_test = pd.read_parquet(args.file_path_test_images_info).reset_index()
     if args.inference_proba:
@@ -549,8 +542,8 @@ def do_inference(args: ArgumentParser, model: nn.Module):
             df = inference_proba(args, test_configs, dataset=dataset, model=model)
             collect.append(df)
 
-            if args.inference_proba:
-                score = do_evaluate(args, df)
+            if args.inference_proba and eval_metric_func is not None:
+                score = do_evaluate(args, df, eval_metric_func=eval_metric_func)
                 print(f"Inference TTA: {i:02d} / {len(test_configs.tta_transforms):02d} rounds: {score:.04f}")
 
         df = pd.concat(collect, ).groupby(level=args.shared_indices).mean()
@@ -687,13 +680,7 @@ def main(args: ArgumentParser):
     args = configure_arguments(args)
     index_train_test_images(args)
 
-    if "efficientnet" in args.model_arch:
-        model = EfficientNet.from_pretrained(
-            args.model_arch, advprop=False, in_channels=3, num_classes=len(args.labels))
-    else:
-        # "seresnet34", resnext50_32x4d"
-        model = timm.create_model(
-            args.model_arch, pretrained=True, num_classes=len(args.labels), in_chans=3, drop_rate=.5)
+    eval_metric_func: Callable = alaska_weighted_auc
 
     # loading info for training
     # configs
@@ -712,17 +699,37 @@ def main(args: ArgumentParser):
         training_records = process_images_to_records(args, df=train_df)
         valid_records = process_images_to_records(args, df=valid_df)
 
-    # use lightning
+    # model arch
+    if "efficientnet" in args.model_arch:
+        model = EfficientNet.from_pretrained(
+            args.model_arch, advprop=False, in_channels=3, num_classes=len(args.labels))
+    else:
+        # "seresnet34", resnext50_32x4d"
+        model = timm.create_model(
+            args.model_arch, pretrained=True, num_classes=len(args.labels), in_chans=3, drop_rate=.5)
+
+    # use lightning for training or inference
     if args.use_lightning:
         model = BaseLightningModule(
             model, training_configs=training_configs, training_records=training_records,
             valid_configs=validation_configs, valid_records=valid_records, eval_metric_name=args.eval_metric,
-            eval_metric_func=alaska_weighted_auc)
+            eval_metric_func=eval_metric_func)
 
-        model = training_lightning(args=args, model=model)
-        model.freeze()
+    checkpoint: Optional = None
+    checkpoint_exists: bool = os.path.exists(args.checkpoint_path)
+    if args.load_checkpoint and checkpoint_exists:
+        print(f"loading checkpoint from: {args.checkpoint_path}")
+        checkpoint = torch.load(args.checkpoint_path)
+        model.load_state_dict(checkpoint["state_dict"])
 
-    # raw
+    elif args.load_checkpoint:
+        raise ValueError(f"checkpoint does not exist: {args.checkpoint_path}")
+
+    if args.use_lightning and not args.inference_only:
+        print(f"using lightning")
+        model = training_lightning(args=args, model=model, checkpoint=checkpoint)
+
+    # push model to computing
     if args.gpus is not None:
         model = model.cuda()
         device = torch.device("cuda:0")
@@ -747,16 +754,15 @@ def main(args: ArgumentParser):
             pin_memory=False,
         )
 
-        fitter = Fitter(model=model, device=device, config=training_configs, eval_metric_func=alaska_weighted_auc)
-        if args.load_checkpoint and os.path.exists(args.checkpoint_path):
+        fitter = Fitter(model=model, device=device, config=training_configs, eval_metric_func=eval_metric_func)
+        if args.load_checkpoint and checkpoint_exists:
             fitter.load(args.checkpoint_path, model_weights_only=args.load_weights_only)
-        # fitter.load(f"{fitter.base_dir}/best-checkpoint-024epoch.bin")
         fitter.fit(train_loader, val_loader)
 
     # Test
-    submission = do_inference(args, model=model)
+    submission = do_inference(args, model=model, eval_metric_func=eval_metric_func)
     if args.inference_proba:
-        score = do_evaluate(args, submission)
+        score = do_evaluate(args, submission, eval_metric_func=eval_metric_func)
         print(f"Inference TTA: {score:.04f}")
         file_path = os.path.join(args.cached_dir, f"proba__arch_{args.model_arch}__metric_{score:.4f}.parquet")
         submission.to_parquet(file_path)
