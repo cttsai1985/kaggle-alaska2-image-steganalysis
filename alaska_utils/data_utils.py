@@ -46,7 +46,7 @@ def index_train_test_images(args: ArgumentParser):
             return
 
     df_quality: pd.DataFrame = pd.DataFrame()
-    file_path_image_quality = args.args.file_path_image_quality
+    file_path_image_quality = args.file_path_image_quality
     if os.path.exists(file_path_image_quality):
         df_quality = pd.read_csv(file_path_image_quality).set_index(args.shared_indices)
         print(f"read in image quality file: {df_quality.shape}")
