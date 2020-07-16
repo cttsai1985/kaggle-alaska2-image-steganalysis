@@ -1,6 +1,6 @@
 configs = {
     "num_workers": 8,
-    "batch_size": 8,
+    "batch_size": 4,
 
     "augmentations": [
 #        {"transform": "HorizontalFlip", "params": {"p": .5}, },
@@ -26,6 +26,13 @@ configs = {
             {"transform": "ToTensorV2", "params": {"always_apply": True, "p": 1.}, },
         ],
         [
+            {"transform": "VerticalFlip", "params": {"always_apply": True, "p": 1.}, },
+            {"transform": "Resize", "params": {"height": 512, "width": 512, "always_apply": True, "p": 1.}, },
+            {"transform": "Normalize", "params": {"always_apply": True, "p": 1.}, },
+            {"transform": "ToTensorV2", "params": {"always_apply": True, "p": 1.}, },
+        ],
+        [
+            {"transform": "HorizontalFlip", "params": {"always_apply": True, "p": 1.}, },
             {"transform": "VerticalFlip", "params": {"always_apply": True, "p": 1.}, },
             {"transform": "Resize", "params": {"height": 512, "width": 512, "always_apply": True, "p": 1.}, },
             {"transform": "Normalize", "params": {"always_apply": True, "p": 1.}, },
