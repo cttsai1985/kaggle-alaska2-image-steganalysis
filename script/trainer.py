@@ -39,6 +39,7 @@ from alaska_utils import initialize_configs
 from alaska_utils import split_train_valid_data
 from alaska_utils import configure_arguments
 from alaska_utils import index_train_test_images
+from alaska_utils import generate_submission
 
 
 def post_processing_inference(y_true, y_pred) -> Tuple[np.array, np.array]:
@@ -489,6 +490,8 @@ def training_lightning(args: ArgumentParser, model: nn.Module, checkpoint: Optio
 
 
 def inference_proba(args: ArgumentParser, configs, dataset: Dataset, model: nn.Module) -> pd.DataFrame:
+    image, kind = args.shared_indices
+
     data_loader = DataLoader(
         dataset, batch_size=configs.batch_size, shuffle=False, num_workers=configs.num_workers, drop_last=False, )
 
@@ -501,14 +504,13 @@ def inference_proba(args: ArgumentParser, configs, dataset: Dataset, model: nn.M
             f"Test Batch Proba: {step:03d} / {total_num_batch:d}, progress: {100. * step / total_num_batch: .02f} %",
             end="\r")
 
-        result["image"].extend(image_names)
-        result["kind"].extend(image_kinds)
+        result[image].extend(image_names)
+        result[kind].extend(image_kinds)
         outputs.append(F.softmax(model(images.cuda()), dim=1).data.cpu())
 
     y_pred = pd.DataFrame(torch.cat(outputs, dim=0).numpy(), columns=args.labels)
     submission = pd.concat([pd.DataFrame(result), y_pred], axis=1).set_index(args.shared_indices).sort_index()
-
-    print(f"\nFinish Test Proba: {submission.shape}, Stats:\n{submission.describe()}")
+    print(f"\nFinish Inference Proba: {submission.shape}, Stats:\n{submission.describe()}")
     return submission
 
 
@@ -521,7 +523,7 @@ def do_evaluate(
         print(f"Warning: No Ground Truth to evaluate; Return 0")
         return 0.
 
-    return eval_metric_func(df[kind].isin(args.labels[1:]).values, (1. - df[label]).values)
+    return eval_metric_func((df[kind] != label).values, (1. - df[label]).values)
 
 
 def do_inference(args: ArgumentParser, model: nn.Module, eval_metric_func: Optional[Callable] = None):
@@ -547,7 +549,7 @@ def do_inference(args: ArgumentParser, model: nn.Module, eval_metric_func: Optio
                 print(f"Inference TTA: {i:02d} / {len(test_configs.tta_transforms):02d} rounds: {score:.04f}")
 
         df = pd.concat(collect, ).groupby(level=args.shared_indices).mean()
-        print(f"\nFinish Test Proba: {df.shape}, Stats:\n{df.describe()}")
+        print(f"\nFinish TTA: {df.shape}, Stats:\n{df.describe()}")
         return df
 
     dataset = SubmissionRetriever(records=test_records, transforms=test_configs.transforms, )
@@ -761,20 +763,25 @@ def main(args: ArgumentParser):
 
     # Test
     submission = do_inference(args, model=model, eval_metric_func=eval_metric_func)
-    if args.inference_proba:
-        score = do_evaluate(args, submission, eval_metric_func=eval_metric_func)
-        print(f"Inference TTA: {score:.04f}")
-        file_path = os.path.join(args.cached_dir, f"proba__arch_{args.model_arch}__metric_{score:.4f}.parquet")
-        submission.to_parquet(file_path)
-    else:
-        print(f"Inference Test:")
-        image, kind = args.shared_indices
-        df = submission.reset_index()[[image, args.labels[0]]]
-        df.columns = ["Id", "Label"]
-        df.set_index("Id", inplace=True)
-        df["Label"] = 1. - df["Label"]
+    print(f"Finished Inference")
+    if not args.inference_proba:
+        df = generate_submission(submission)
         df.to_csv("submission.csv", index=True)
-        print(f"\nSubmission Stats:\n{df.describe()}\nSubmission:\n{df.head()}")
+
+    elif args.inference_proba:
+        score: float = 0.
+        if eval_metric_func is not None:
+            score = do_evaluate(args, submission, eval_metric_func=eval_metric_func)
+
+        if args.tta:
+            print(f"Inference TTA: {score:.04f}")
+            file_path = os.path.join(args.cached_dir, f"proba__arch_{args.model_arch}__metric_{score:.4f}_tta.parquet")
+        else:
+            print(f"Inference: {score:.04f}")
+            file_path = os.path.join(args.cached_dir, f"proba__arch_{args.model_arch}__metric_{score:.4f}_tta.parquet")
+
+        submission.to_parquet(file_path)
+        print(f"Save Inferred Prediction: {score:.04f} to {file_path}")
 
     return
 
