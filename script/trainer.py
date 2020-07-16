@@ -550,10 +550,28 @@ def do_inference(args: ArgumentParser, model: nn.Module, eval_metric_func: Optio
 
         df = pd.concat(collect, ).groupby(level=args.shared_indices).mean()
         print(f"\nFinish TTA: {df.shape}, Stats:\n{df.describe()}")
+
+    elif not args.tta:
+        dataset = SubmissionRetriever(records=test_records, transforms=test_configs.transforms, )
+        df = inference_proba(args, test_configs, dataset=dataset, model=model)
+
+    # save inference
+    if args.inference_proba and eval_metric_func is not None:
+        score = do_evaluate(args, df, eval_metric_func=eval_metric_func)
+        if not args.tta:
+            print(f"Inference: {score:.04f}")
+            file_path = f"proba__arch_{args.model_arch}__metric_{score:.4f}.parquet"
+
+        else:
+            num_tta: int = test_configs.num_tta_transforms_
+            print(f"Inference TTA{num_tta}: {score:.04f}")
+            file_path = f"proba__arch_{args.model_arch}__metric_{score:.4f}__tta{num_tta}.parquet"
+
+        file_path = os.path.join(args.cached_dir, file_path)
+        df.to_parquet(file_path)
+        print(f"Save Inferred Prediction {df.shape}: {score:.04f} to {file_path}")
         return df
 
-    dataset = SubmissionRetriever(records=test_records, transforms=test_configs.transforms, )
-    df = inference_proba(args, test_configs, dataset=dataset, model=model)
     return df
 
 
@@ -661,12 +679,17 @@ class BaseConfigs:
         if "test_time_augmentations" in self.configs.keys():
             self.tta_transforms = [self._load_transforms(tta) for tta in self.configs["test_time_augmentations"]]
 
+    @property
+    def num_tta_transforms_(self):
+        return len(self.tta_transforms)
+
     @staticmethod
     def _load_transforms(augmentations: List):
         return A.Compose([transform_factory(item) for item in augmentations])
 
     @staticmethod
     def _load_configs(file_path: str):
+        print(f"Load configs from: {file_path}")
         return initialize_configs(file_path).configs
 
     @classmethod
@@ -703,8 +726,10 @@ def main(args: ArgumentParser):
 
     # model arch
     if "efficientnet" in args.model_arch:
+        print("using efficientnet")
         model = EfficientNet.from_pretrained(
             args.model_arch, advprop=False, in_channels=3, num_classes=len(args.labels))
+        model._fc = nn.Linear(in_features=1408, out_features=4, bias=True)
     else:
         # "seresnet34", resnext50_32x4d"
         model = timm.create_model(
@@ -722,7 +747,11 @@ def main(args: ArgumentParser):
     if args.load_checkpoint and checkpoint_exists:
         print(f"loading checkpoint from: {args.checkpoint_path}")
         checkpoint = torch.load(args.checkpoint_path)
-        model.load_state_dict(checkpoint["state_dict"])
+
+        if args.use_lightning:
+            model.load_state_dict(checkpoint["state_dict"])
+        else:
+            model.load_state_dict(checkpoint["model_state_dict"])
 
     elif args.load_checkpoint:
         raise ValueError(f"checkpoint does not exist: {args.checkpoint_path}")
@@ -765,7 +794,7 @@ def main(args: ArgumentParser):
     submission = do_inference(args, model=model, eval_metric_func=eval_metric_func)
     print(f"Finished Inference")
     if not args.inference_proba:
-        df = generate_submission(submission)
+        df = generate_submission(args, submission)
         df.to_csv("submission.csv", index=True)
 
     elif args.inference_proba:
@@ -775,10 +804,10 @@ def main(args: ArgumentParser):
 
         if args.tta:
             print(f"Inference TTA: {score:.04f}")
-            file_path = os.path.join(args.cached_dir, f"proba__arch_{args.model_arch}__metric_{score:.4f}_tta.parquet")
+            file_path = os.path.join(args.cached_dir, f"proba__arch_{args.model_arch}__metric_{score:.4f}__tta.parquet")
         else:
             print(f"Inference: {score:.04f}")
-            file_path = os.path.join(args.cached_dir, f"proba__arch_{args.model_arch}__metric_{score:.4f}_tta.parquet")
+            file_path = os.path.join(args.cached_dir, f"proba__arch_{args.model_arch}__metric_{score:.4f}.parquet")
 
         submission.to_parquet(file_path)
         print(f"Save Inferred Prediction: {score:.04f} to {file_path}")
