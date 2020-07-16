@@ -1,11 +1,13 @@
 configs = {
     "num_workers": 8,
-    "batch_size": 16,  # efficientnet-b2
+    "batch_size": 6,  # efficientnet-b2
+
+    "accumulate_grad_batches": 4,
 
     "n_epochs": 25,
-    "lr": 4e-05,
+    "lr": 4e-6,
 
-    "lr_scheduler": "ReduceLROnPlateau",
+    "lr_scheduler": "OneCycleLR",
     "scheduler_params": {},
 
     "augmentations": [

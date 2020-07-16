@@ -1,5 +1,5 @@
 import os
-import random
+import sys
 import time
 import warnings
 from argparse import ArgumentParser
@@ -21,7 +21,6 @@ from catalyst.data.sampler import BalanceClassSampler
 from efficientnet_pytorch import EfficientNet
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
-from sklearn import metrics
 from sklearn.model_selection import StratifiedKFold
 from torch import nn
 from torch import optim
@@ -30,89 +29,23 @@ from torch.utils.data.sampler import SequentialSampler
 
 warnings.filterwarnings("ignore")
 
+EXTERNAL_UTILS_LIB = "../alaska_utils"
+sys.path.append(EXTERNAL_UTILS_LIB)
 
-def seed_everything(seed: int = 42):
-    random.seed(seed)
-    os.environ["PYTHONHASHSEED"] = str(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed(seed)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = True
-    return
-
-
-# competition metrics
-def alaska_weighted_auc(
-        y_true: np.array, y_valid: np.array, tpr_thresholds: List[float] = [0.0, 0.4, 1.0],
-        weights: List[float] = [2, 1]):
-    """
-    https://www.kaggle.com/anokas/weighted-auc-metric-updated
-    """
-    # size of subsets
-    areas = np.array(tpr_thresholds[1:]) - np.array(tpr_thresholds[:-1])
-
-    # The total area is normalized by the sum of weights such that the final weighted AUC is between 0 and 1.
-    normalization = np.dot(areas, weights)
-
-    def compute_submetrics(y_min: float, y_max: float, fpr_arr: np.array, tpr_arr: np.array) -> float:
-        mask = (y_min < tpr_arr) & (tpr_arr < y_max)
-
-        if not len(fpr[mask]):
-            return 0.
-
-        x_padding = np.linspace(fpr_arr[mask][-1], 1, 100)
-
-        x = np.concatenate([fpr_arr[mask], x_padding])
-        y = np.concatenate([tpr_arr[mask], [y_max] * len(x_padding)])
-        return metrics.auc(x, y - y_min)  # normalize such that curve starts at y=0
-
-    fpr, tpr, thresholds = metrics.roc_curve(y_true, y_valid, pos_label=1)
-    sub_metrics = [compute_submetrics(
-        y_min=a, y_max=b, fpr_arr=fpr, tpr_arr=tpr) for a, b in zip(tpr_thresholds[:-1], tpr_thresholds[1:])]
-    competition_metric = (np.array(sub_metrics) * weights).sum() / normalization
-    return competition_metric
+from alaska_utils import alaska_weighted_auc
+from alaska_utils import safe_mkdir
+from alaska_utils import seed_everything
+from alaska_utils import initialize_configs
+from alaska_utils import split_train_valid_data
+from alaska_utils import configure_arguments
+from alaska_utils import index_train_test_images
+from alaska_utils import generate_submission
 
 
-# Metrics
-class AverageMeter:
-    """Computes and stores the average and current value"""
-
-    def __init__(self):
-        self.reset()
-
-    def reset(self):
-        self.val = 0
-        self.avg = 0
-        self.sum = 0
-        self.count = 0
-
-    def update(self, val, n=1):
-        self.val = val
-        self.sum += val * n
-        self.count += n
-        self.avg = self.sum / self.count
-
-
-class RocAucMeter:
-    def __init__(self):
-        self.reset()
-
-    def reset(self):
-        self.y_true = np.array([0, 1])
-        self.y_pred = np.array([0.5, 0.5])
-        self.score = 0
-
-    def update(self, y_true, y_pred):
-        y_true = y_true.cpu().numpy().argmax(axis=1).clip(min=0, max=1).astype(int)
-        y_pred = 1 - nn.functional.softmax(y_pred, dim=1).data.cpu().numpy()[:, 0]
-        self.y_true = np.hstack((self.y_true, y_true))
-        self.y_pred = np.hstack((self.y_pred, y_pred))
-        self.score = alaska_weighted_auc(self.y_true, self.y_pred)
-
-    @property
-    def avg(self):
-        return self.score
+def post_processing_inference(y_true, y_pred) -> Tuple[np.array, np.array]:
+    y_true = y_true.cpu().numpy().argmax(axis=1).clip(min=0, max=1).astype(int)
+    y_pred = 1. - F.softmax(y_pred, dim=1).data.cpu().numpy()[:, 0]
+    return y_true, y_pred
 
 
 # Label Smoothing
@@ -135,12 +68,60 @@ class LabelSmoothing(nn.Module):
         return -(self.confidence * nll_loss + self.smoothing * smooth_loss).mean()
 
 
+# Metrics
+class AverageMeter:
+    """Computes and stores the average and current value"""
+
+    def __init__(self):
+        self.val: float = 0
+        self.avg: float = 0
+        self.sum: float = 0
+        self.count: int = 0
+        self.reset()
+
+    def reset(self):
+        self.val: float = 0
+        self.avg: float = 0
+        self.sum: float = 0
+        self.count: int = 0
+
+    def update(self, val, n=1):
+        self.val = val
+        self.sum += val * n
+        self.count += n
+        self.avg = self.sum / self.count
+
+
+class EvalMetricMeter:
+    def __init__(self, score_func: Callable):
+        self.y_true: Optional[np.array] = None
+        self.y_pred: Optional[np.array] = None
+        self.score: float = 0
+        self.score_func: Callable = score_func
+        self.reset()
+
+    def reset(self):
+        self.y_true = np.array([0, 1])
+        self.y_pred = np.array([0.5, 0.5])
+        self.score = 0
+
+    def update(self, y_true, y_pred):
+        y_true, y_pred = post_processing_inference(y_true, y_pred)
+        self.y_true = np.hstack((self.y_true, y_true))
+        self.y_pred = np.hstack((self.y_pred, y_pred))
+        self.score = self.score_func(self.y_true, self.y_pred)
+
+    @property
+    def avg(self):
+        return self.score
+
+
 # Fitter
 class Fitter:
 
-    def __init__(self, model, device, config):
+    def __init__(self, model: nn.Module, device, config, eval_metric_func: Callable):
         self.config = config
-        self.epoch = 0
+        self.epoch: int = 0
 
         self.base_dir = "./"
         self.log_path = os.path.join(self.base_dir, "log.txt")
@@ -148,6 +129,7 @@ class Fitter:
 
         self.model: nn.Module = model
         self.device = device
+        self.eval_metric_func: Callable = eval_metric_func
 
         self.optimizer = None
         self.scheduler = None
@@ -206,7 +188,7 @@ class Fitter:
     def validation(self, val_loader):
         self.model.eval()
         summary_loss = AverageMeter()
-        final_scores = RocAucMeter()
+        final_scores = EvalMetricMeter(score_func=self.eval_metric_func)
         t = time.time()
         for step, (images, targets) in enumerate(val_loader):
             if step % self.config.verbose_step == 0 and self.config.verbose:
@@ -231,7 +213,7 @@ class Fitter:
     def train_one_epoch(self, train_loader):
         self.model.train()
         summary_loss = AverageMeter()
-        final_scores = RocAucMeter()
+        final_scores = EvalMetricMeter(score_func=self.eval_metric_func)
         t = time.time()
         for step, (images, targets) in enumerate(train_loader):
             if step % self.config.verbose_step == 0 and self.config.verbose:
@@ -323,9 +305,8 @@ class BaseLightningModule(pl.LightningModule):
         return {"loss": self.loss(y_hat, y), "y": y, "yhat": y_hat}
 
     def _post_process_outputs_for_metric(self, outputs):
-        # metric
-        y_true = (torch.cat([x["y"] for x in outputs], dim=0).cpu().numpy()[:, 0] == 0).astype(int)
-        y_pred = 1. - F.softmax(torch.cat([x["yhat"] for x in outputs], dim=0)).data.cpu().numpy()[:, 0]
+        y_true, y_pred = post_processing_inference(
+            y_true=torch.cat([x["y"] for x in outputs], dim=0), y_pred=torch.cat([x["yhat"] for x in outputs], dim=0))
         return self.eval_metric_func(y_true, y_pred)
 
     def training_epoch_end(self, outputs) -> Dict[str, float]:
@@ -469,112 +450,48 @@ class SubmissionRetriever(_BaseRetriever):
 
 # Main Function Block
 ########################################################################################################################
-def index_train_test_images(args):
-    working_dir: str = args.data_dir
-    output_dir: str = args.cached_dir
-    meta_dir: str = args.meta_dir
-    file_path_image_quality: str = "image_quality.csv"
-
-    args.file_path_all_images_info = os.path.join(output_dir, "all_images_info.parquet")
-    args.file_path_train_images_info = os.path.join(output_dir, "train_images_info.parquet")
-    args.file_path_test_images_info = os.path.join(output_dir, "test_images_info.parquet")
-    file_paths: List[str] = [
-        args.file_path_all_images_info, args.file_path_train_images_info, args.file_path_test_images_info]
-
-    if all([os.path.exists(path) for path in file_paths]):
-        if not args.refresh_cache:
-            return
-
-    file_path_image_quality = os.path.join(meta_dir, file_path_image_quality)
-    df_quality: pd.DataFrame = pd.DataFrame()
-    if os.path.exists(file_path_image_quality):
-        df_quality = pd.read_csv(file_path_image_quality).set_index(args.shared_indices)
-        print(f"read in image quality file: {df_quality.shape}")
-    else:
-        print(f"image quality not exist: {file_path_image_quality}")
-        raise ValueError()
-
-    # process
-    list_all_images: List[str] = list(glob(os.path.join(working_dir, "*", "*.jpg")))
-    df_train = pd.DataFrame({"file_path": list_all_images})
-    df_train["image"] = df_train["file_path"].apply(lambda x: os.path.basename(x))
-    df_train["kind"] = df_train["file_path"].apply(lambda x: os.path.split(os.path.dirname(x))[-1])
-    df_train["label"] = df_train["kind"].map({kind: label for label, kind in enumerate(args.labels)})
-    df_train.drop(columns=["file_path"], inplace=True)
-    df_train.set_index(args.shared_indices, inplace=True)
-
-    if not df_quality.empty:
-        df_train = df_train.join(df_quality["quality"])
-
-    print(f"Columns: {df_train.columns.tolist()}, N Uniques:\n{df_train.nunique()}")
-    df_train.sort_values("image", inplace=True)
-    df_train.to_parquet(args.file_path_all_images_info)
-    df_train.loc[df_train["label"].notnull()].to_parquet(args.file_path_train_images_info)
-    df_train.loc[df_train["label"].isnull()].to_parquet(args.file_path_test_images_info)
-    return
-
-
-def process_images_to_records(args, df: pd.DataFrame) -> List[Dict[str, Any]]:
-    df["file_path"] = df.apply(lambda x: os.path.join(args.data_dir, x["kind"], x["image"]), axis=1)
+def process_images_to_records(args: ArgumentParser, df: pd.DataFrame) -> List[Dict[str, Any]]:
+    image, kind = args.shared_indices
+    df["file_path"] = df.apply(lambda x: os.path.join(args.data_dir, x[kind], x[image]), axis=1)
     return df.to_dict("record")
 
 
-def split_data(args, splitter):
-    df_train = pd.read_parquet(args.file_path_train_images_info).reset_index()
-    if args.debug:
-        df_train = df_train.iloc[:200]
-
-    df_train["label"] = df_train["label"].astype(np.int32)
-    df = df_train.loc[(~df_train["image"].duplicated(keep="first"))]
-
-    for train_index, valid_index in splitter.split(X=df["label"], y=df["quality"], groups=df["image"]):
-        break
-
-    train_df = df_train.loc[df_train["image"].isin(df["image"].iloc[train_index])]
-    valid_df = df_train.loc[df_train["image"].isin(df["image"].iloc[valid_index])]
-    return train_df, valid_df
-
-
-def training_lightning(args, model: nn.Module):
-    # load_from_checkpoint: not working
-    if args.load_checkpoint and os.path.exists(args.checkpoint_path):
-        checkpoint = torch.load(args.checkpoint_path)
-        model.load_state_dict(checkpoint["state_dict"])
-
+def training_lightning(args: ArgumentParser, model: nn.Module, checkpoint: Optional = None) -> nn.Module:
+    if checkpoint is not None:
         print(checkpoint["lr_schedulers"])
+        # load_from_checkpoint: not working
         # not working if using
         # trainer = Trainer(resume_From_checkpoint=args.checkpoint_path)
         if not args.load_weights_only:
             model.restored_checkpoint = checkpoint
 
     # training
-    if not args.inference_only:
-        metric_name: str = f"val_{args.eval_metric}"
-        file_path_checkpoint: str = os.path.join(
-            args.model_dir, "__".join(["result", args.model_arch, "{epoch:03d}-{val_loss:.4f}"]))
-        checkpoint_callback = ModelCheckpoint(
-            filepath=file_path_checkpoint, save_top_k=3, verbose=True, monitor=metric_name, mode="max")
+    metric_name: str = f"val_{args.eval_metric}"
+    file_path_checkpoint: str = os.path.join(
+        args.model_dir, "__".join(["result", args.model_arch, "{epoch:03d}-{val_loss:.4f}"]))
+    checkpoint_callback = ModelCheckpoint(
+        filepath=file_path_checkpoint, save_top_k=3, verbose=True, monitor=metric_name, mode="max")
 
-        early_stop_callback = EarlyStopping(
-            monitor=metric_name, min_delta=0., patience=5, verbose=True, mode="max")
-        trainer = Trainer(
-            gpus=args.gpus, min_epochs=1, max_epochs=1000, default_root_dir=args.model_dir,
-            accumulate_grad_batches=model.training_configs.accumulate_grad_batches,
-            # distributed_backend="dpp",
-            early_stop_callback=early_stop_callback,
-            checkpoint_callback=checkpoint_callback
-        )
-        lr_finder = trainer.lr_find(model)  # pd.DataFrame(lr_finder.results
-        new_lr = lr_finder.suggestion()
-        print(f"optimal learning rate: {new_lr}")
-
-        trainer.fit(model)
-        model.freeze()
-
+    early_stop_callback = EarlyStopping(
+        monitor=metric_name, min_delta=0., patience=5, verbose=True, mode="max")
+    trainer = Trainer(
+        gpus=args.gpus, min_epochs=1, max_epochs=1000, default_root_dir=args.model_dir,
+        accumulate_grad_batches=model.training_configs.accumulate_grad_batches,
+        # distributed_backend="dpp",
+        early_stop_callback=early_stop_callback,
+        checkpoint_callback=checkpoint_callback
+    )
+    lr_finder = trainer.lr_find(model)  # pd.DataFrame(lr_finder.results
+    new_lr = lr_finder.suggestion()
+    print(f"optimal learning rate: {new_lr}")
+    trainer.fit(model)
+    model.freeze()
     return model
 
 
-def inference_proba(args, configs, dataset: Dataset, model: nn.Module) -> pd.DataFrame:
+def inference_proba(args: ArgumentParser, configs, dataset: Dataset, model: nn.Module) -> pd.DataFrame:
+    image, kind = args.shared_indices
+
     data_loader = DataLoader(
         dataset, batch_size=configs.batch_size, shuffle=False, num_workers=configs.num_workers, drop_last=False, )
 
@@ -587,25 +504,29 @@ def inference_proba(args, configs, dataset: Dataset, model: nn.Module) -> pd.Dat
             f"Test Batch Proba: {step:03d} / {total_num_batch:d}, progress: {100. * step / total_num_batch: .02f} %",
             end="\r")
 
-        result["image"].extend(image_names)
-        result["kind"].extend(image_kinds)
-        outputs.append(nn.functional.softmax(model(images.cuda()), dim=1).data.cpu())
+        result[image].extend(image_names)
+        result[kind].extend(image_kinds)
+        outputs.append(F.softmax(model(images.cuda()), dim=1).data.cpu())
 
     y_pred = pd.DataFrame(torch.cat(outputs, dim=0).numpy(), columns=args.labels)
     submission = pd.concat([pd.DataFrame(result), y_pred], axis=1).set_index(args.shared_indices).sort_index()
-
-    print(f"\nFinish Test Proba: {submission.shape}, Stats:\n{submission.describe()}")
+    print(f"\nFinish Inference Proba: {submission.shape}, Stats:\n{submission.describe()}")
     return submission
 
 
-def do_evaluate(submission: pd.DataFrame, label: str = "Cover") -> float:
-    df = submission.reset_index()[["kind", "image", label]]
-    df = df.loc[df["kind"].isin(args.labels)]
-    df["Label"] = 1. - df[label]
-    return alaska_weighted_auc(df["kind"].isin(args.labels[1:]), df["Label"].values)
+def do_evaluate(
+        args: ArgumentParser, submission: pd.DataFrame, eval_metric_func: Callable, label: str = "Cover") -> float:
+    image, kind = args.shared_indices
+    df = submission.reset_index()[[kind, image, label]]
+    df = df.loc[df[kind].isin(args.labels)]
+    if df.empty:
+        print(f"Warning: No Ground Truth to evaluate; Return 0")
+        return 0.
+
+    return eval_metric_func((df[kind] != label).values, (1. - df[label]).values)
 
 
-def do_inference(args, model: nn.Module):
+def do_inference(args: ArgumentParser, model: nn.Module, eval_metric_func: Optional[Callable] = None):
     test_configs = BaseConfigs.from_file(file_path=args.test_configs)
     df_test = pd.read_parquet(args.file_path_test_images_info).reset_index()
     if args.inference_proba:
@@ -623,29 +544,35 @@ def do_inference(args, model: nn.Module):
             df = inference_proba(args, test_configs, dataset=dataset, model=model)
             collect.append(df)
 
-            score = do_evaluate(df)
-            print(f"Inference TTA: {i:02d} / {len(test_configs.tta_transforms):02d} rounds: {score:.04f}")
+            if args.inference_proba and eval_metric_func is not None:
+                score = do_evaluate(args, df, eval_metric_func=eval_metric_func)
+                print(f"Inference TTA: {i:02d} / {len(test_configs.tta_transforms):02d} rounds: {score:.04f}")
 
         df = pd.concat(collect, ).groupby(level=args.shared_indices).mean()
-        print(f"\nFinish Test Proba: {df.shape}, Stats:\n{df.describe()}")
+        print(f"\nFinish TTA: {df.shape}, Stats:\n{df.describe()}")
+
+    elif not args.tta:
+        dataset = SubmissionRetriever(records=test_records, transforms=test_configs.transforms, )
+        df = inference_proba(args, test_configs, dataset=dataset, model=model)
+
+    # save inference
+    if args.inference_proba and eval_metric_func is not None:
+        score = do_evaluate(args, df, eval_metric_func=eval_metric_func)
+        if not args.tta:
+            print(f"Inference: {score:.04f}")
+            file_path = f"proba__arch_{args.model_arch}__metric_{score:.4f}.parquet"
+
+        else:
+            num_tta: int = test_configs.num_tta_transforms_
+            print(f"Inference TTA{num_tta}: {score:.04f}")
+            file_path = f"proba__arch_{args.model_arch}__metric_{score:.4f}__tta{num_tta}.parquet"
+
+        file_path = os.path.join(args.cached_dir, file_path)
+        df.to_parquet(file_path)
+        print(f"Save Inferred Prediction {df.shape}: {score:.04f} to {file_path}")
         return df
 
-    dataset = SubmissionRetriever(records=test_records, transforms=test_configs.transforms, )
-    df = inference_proba(args, test_configs, dataset=dataset, model=model)
     return df
-
-
-def initialize_configs(filename: str):
-    if not os.path.exists(filename):
-        raise ValueError("Spec file {spec_file} does not exist".format(spec_file=filename))
-
-    module_name = filename.split(os.sep)[-1].replace(".", "")
-
-    import importlib.util
-    spec = importlib.util.spec_from_file_location(module_name, filename)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
 
 
 lr_schedulers = {
@@ -752,12 +679,17 @@ class BaseConfigs:
         if "test_time_augmentations" in self.configs.keys():
             self.tta_transforms = [self._load_transforms(tta) for tta in self.configs["test_time_augmentations"]]
 
+    @property
+    def num_tta_transforms_(self):
+        return len(self.tta_transforms)
+
     @staticmethod
     def _load_transforms(augmentations: List):
         return A.Compose([transform_factory(item) for item in augmentations])
 
     @staticmethod
     def _load_configs(file_path: str):
+        print(f"Load configs from: {file_path}")
         return initialize_configs(file_path).configs
 
     @classmethod
@@ -765,170 +697,70 @@ class BaseConfigs:
         return cls(file_path=file_path)
 
 
-# Configs Block Starts
-########################################################################################################################
-class TrainReduceOnPlateauConfigs:
-    num_workers: int = 8
-    batch_size: int = 12  # 16
-
-    # -------------------
-    verbose: bool = True
-    verbose_step: int = 1
-
-    # -------------------
-    n_epochs: int = 5
-    lr: float = 0.001
-
-    # --------------------
-    loss: nn.Module = LabelSmoothing(smoothing=.05)
-
-    # --------------------
-    step_after_optimizer: bool = False  # do scheduler.step after optimizer.step
-    step_after_validation = True  # do scheduler.step after validation stage loss
-    lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau
-    scheduler_params = dict(
-        mode="min",
-        factor=0.5,
-        patience=1,
-        verbose=True,
-        threshold=0.0001,
-        threshold_mode="abs",
-        cooldown=0,
-        min_lr=1e-8,
-        eps=1e-08
-    )
-
-    # Augmentations
-    # --------------------
-    transforms = A.Compose([
-        A.HorizontalFlip(p=0.5),
-        A.VerticalFlip(p=0.5),
-        A.RandomRotate90(always_apply=False, p=0.5),
-        # A.RandomGridShuffle(grid=(3, 3), always_apply=False, p=0.5),
-        A.InvertImg(always_apply=False, p=0.5),
-        A.Resize(height=512, width=512, p=1.0),
-        A.Normalize(always_apply=True),
-        ToTensorV2(p=1.0),
-    ], p=1.0)
-
-
-class TrainOneCycleConfigs:
-    num_workers: int = 8
-    batch_size: int = 14  # efficientnet-b2
-    # batch_size: int = 11  # efficientnet-b3
-    # batch_size: int = 8  # efficientnet-b4
-    # batch_size: int = 6  # efficientnet-b5
-    # batch_size: int = 4  # efficientnet-b6
-
-    # -------------------
-    verbose: bool = True
-    verbose_step: int = 1
-
-    # -------------------
-    n_epochs: int = 40
-    lr: float = 0.001
-
-    # --------------------
-    loss: nn.Module = LabelSmoothing(smoothing=.05)
-
-    # --------------------
-    step_after_optimizer: bool = True  # do scheduler.step after optimizer.step
-    step_after_validation: bool = False
-    lr_scheduler = torch.optim.lr_scheduler.OneCycleLR
-    scheduler_params = dict(
-        max_lr=0.001,
-        epochs=n_epochs,
-        steps_per_epoch=30000,  # int(len(train_dataset) / batch_size),
-        pct_start=0.1,
-        anneal_strategy="cos",
-        final_div_factor=10 ** 5
-    )
-
-    # Augmentations
-    # --------------------
-    transforms = A.Compose([
-        A.HorizontalFlip(p=0.5),
-        A.VerticalFlip(p=0.5),
-        A.RandomRotate90(always_apply=False, p=0.5),
-        # A.RandomGridShuffle(grid=(3, 3), always_apply=False, p=0.5),
-        A.InvertImg(always_apply=False, p=0.5),
-        A.Resize(height=512, width=512, p=1.0),
-        A.Normalize(always_apply=True),
-        ToTensorV2(p=1.0),
-    ], p=1.0)
-
-
-class ValidConfigs:
-    num_workers: int = 8
-    batch_size: int = 16  # 16
-
-    transforms: A.Compose = A.Compose([
-        A.Resize(height=512, width=512, p=1.0),
-        A.Normalize(always_apply=True),
-        ToTensorV2(p=1.0),
-    ], p=1.0)
-
-
-class TestConfigs:
-    num_workers = 8
-    batch_size = 8  # 16
-
-    transforms: A.Compose = A.Compose([
-        A.Resize(height=512, width=512, p=1.0),
-        A.Normalize(always_apply=True),
-        ToTensorV2(p=1.0),
-    ], p=1.0)
-
-
-########################################################################################################################
-# Configs Block Ends
-
-
-def main(args):
-    args.labels: List[str] = ["Cover", "JMiPOD", "JUNIWARD", "UERD"]
-    args.shared_indices: List[str] = ["image", "kind"]
+def main(args: ArgumentParser):
+    for dir_path in [args.output_dir, args.cached_dir, args.model_dir]:
+        safe_mkdir(dir_path)
 
     seed_everything(args.init_seed)
+    args = configure_arguments(args)
     index_train_test_images(args)
 
+    eval_metric_func: Callable = alaska_weighted_auc
+
+    # loading info for training
+    # configs
+    training_configs = None
+    validation_configs = None
+    if not args.inference_only:
+        validation_configs = BaseConfigs.from_file(file_path=args.valid_configs)
+        training_configs = BaseConfigs.from_file(file_path=args.train_configs)
+        training_configs.loss = LabelSmoothing(smoothing=.05)
+
+    # split data
+    training_records = list()
+    valid_records = list()
+    if not args.inference_only:
+        train_df, valid_df = split_train_valid_data(args=args, splitter=StratifiedKFold(n_splits=5), nr_fold=1)
+        training_records = process_images_to_records(args, df=train_df)
+        valid_records = process_images_to_records(args, df=valid_df)
+
+    # model arch
     if "efficientnet" in args.model_arch:
+        print("using efficientnet")
         model = EfficientNet.from_pretrained(
             args.model_arch, advprop=False, in_channels=3, num_classes=len(args.labels))
+        model._fc = nn.Linear(in_features=1408, out_features=4, bias=True)
     else:
         # "seresnet34", resnext50_32x4d"
         model = timm.create_model(
             args.model_arch, pretrained=True, num_classes=len(args.labels), in_chans=3, drop_rate=.5)
 
-    # loading info for training
-    training_configs = None
-    validation_configs = None
-    training_records = list()
-    valid_records = list()
-    if not args.inference_only:
-        # configs
-        validation_configs = BaseConfigs.from_file(file_path=args.valid_configs)
-        training_configs = BaseConfigs.from_file(file_path=args.train_configs)
-        training_configs.loss = LabelSmoothing(smoothing=.05)
-
-        # split data
-        skf = StratifiedKFold(n_splits=5)
-        train_df, valid_df = split_data(args=args, splitter=skf)
-
-        #
-        training_records = process_images_to_records(args, df=train_df)
-        valid_records = process_images_to_records(args, df=valid_df)
-
-    # use lightning
+    # use lightning for training or inference
     if args.use_lightning:
         model = BaseLightningModule(
             model, training_configs=training_configs, training_records=training_records,
             valid_configs=validation_configs, valid_records=valid_records, eval_metric_name=args.eval_metric,
-            eval_metric_func=alaska_weighted_auc)
+            eval_metric_func=eval_metric_func)
 
-        model = training_lightning(args=args, model=model)
-        model.freeze()
+    checkpoint: Optional = None
+    checkpoint_exists: bool = os.path.exists(args.checkpoint_path)
+    if args.load_checkpoint and checkpoint_exists:
+        print(f"loading checkpoint from: {args.checkpoint_path}")
+        checkpoint = torch.load(args.checkpoint_path)
 
-    # raw
+        if args.use_lightning:
+            model.load_state_dict(checkpoint["state_dict"])
+        else:
+            model.load_state_dict(checkpoint["model_state_dict"])
+
+    elif args.load_checkpoint:
+        raise ValueError(f"checkpoint does not exist: {args.checkpoint_path}")
+
+    if args.use_lightning and not args.inference_only:
+        print(f"using lightning")
+        model = training_lightning(args=args, model=model, checkpoint=checkpoint)
+
+    # push model to computing
     if args.gpus is not None:
         model = model.cuda()
         device = torch.device("cuda:0")
@@ -953,40 +785,34 @@ def main(args):
             pin_memory=False,
         )
 
-        fitter = Fitter(model=model, device=device, config=training_configs)
-        if args.load_checkpoint and os.path.exists(args.checkpoint_path):
+        fitter = Fitter(model=model, device=device, config=training_configs, eval_metric_func=eval_metric_func)
+        if args.load_checkpoint and checkpoint_exists:
             fitter.load(args.checkpoint_path, model_weights_only=args.load_weights_only)
-        # fitter.load(f"{fitter.base_dir}/best-checkpoint-024epoch.bin")
         fitter.fit(train_loader, val_loader)
 
     # Test
-    submission = do_inference(args, model=model)
-    if args.inference_proba:
-        score = do_evaluate(args, submission)
-        print(f"Inference TTA: {score:.04f}")
-        file_path = os.path.join(args.cached_dir, f"proba__arch_{args.model_arch}__metric_{score:.4f}.parquet")
-        submission.to_parquet(file_path)
-    else:
-        print(f"Inference Test:")
-        image, kind = args.shared_indices
-        df = submission.reset_index()[[image, args.labels[0]]]
-        df.columns = ["Id", "Label"]
-        df.set_index("Id", inplace=True)
-        df["Label"] = 1. - df["Label"]
+    submission = do_inference(args, model=model, eval_metric_func=eval_metric_func)
+    print(f"Finished Inference")
+    if not args.inference_proba:
+        df = generate_submission(args, submission)
         df.to_csv("submission.csv", index=True)
-        print(f"\nSubmission Stats:\n{df.describe()}\nSubmission:\n{df.head()}")
+
+    elif args.inference_proba:
+        score: float = 0.
+        if eval_metric_func is not None:
+            score = do_evaluate(args, submission, eval_metric_func=eval_metric_func)
+
+        if args.tta:
+            print(f"Inference TTA: {score:.04f}")
+            file_path = os.path.join(args.cached_dir, f"proba__arch_{args.model_arch}__metric_{score:.4f}__tta.parquet")
+        else:
+            print(f"Inference: {score:.04f}")
+            file_path = os.path.join(args.cached_dir, f"proba__arch_{args.model_arch}__metric_{score:.4f}.parquet")
+
+        submission.to_parquet(file_path)
+        print(f"Save Inferred Prediction: {score:.04f} to {file_path}")
 
     return
-
-
-def safe_mkdir(directory: str) -> bool:
-    if not os.path.exists(directory):
-        os.makedirs(directory)
-        print(f"make dir: {directory}")
-        return True
-
-    print(f"skip making dir: {directory}")
-    return False
 
 
 if "__main__" == __name__:
@@ -1038,9 +864,5 @@ if "__main__" == __name__:
     parser.add_argument("--debug", action="store_true", default=False, help="debug")
     args = parser.parse_args()
 
-    # house keeping
-    safe_mkdir(args.output_dir)
-    safe_mkdir(args.cached_dir)
-    safe_mkdir(args.model_dir)
     # start program
     main(args)
