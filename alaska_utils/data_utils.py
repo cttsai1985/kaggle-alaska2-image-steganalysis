@@ -1,7 +1,7 @@
 import os
 from argparse import ArgumentParser
 from glob import glob
-from typing import List
+from typing import List, Tuple, Optional
 
 import numpy as np
 import pandas as pd
@@ -70,22 +70,52 @@ def index_train_test_images(args: ArgumentParser):
     return
 
 
-def split_train_valid_data(args: ArgumentParser, splitter: BaseCrossValidator, nr_fold: int = 1):
+def split_train_test_data(
+        args: ArgumentParser, data: Optional[pd.DataFrame] = None) -> Tuple[pd.DataFrame, pd.DataFrame]:
     image, kind = args.shared_indices
+
+    if data is None:
+        data = pd.read_parquet(args.file_path_all_images_info)
+
+    df = data.reset_index()
+    mask = df[kind].isin(args.labels)
+    return df.loc[mask], df.loc[~mask]
+
+
+def split_train_valid_data(
+        args: ArgumentParser, splitter: BaseCrossValidator, data: Optional[pd.DataFrame] = None,
+        nr_fold: int = 1) -> Tuple[pd.DataFrame, pd.DataFrame]:
     label = args.col_enum_class
+    image, kind = args.shared_indices
+    image_quality = args.col_image_quality
 
-    df_train = pd.read_parquet(args.file_path_train_images_info).reset_index()
+    if data is None:
+        data = pd.read_parquet(args.file_path_train_images_info)
+
+    data = data.reset_index()
+
     if args.debug:
-        df_train = df_train.iloc[:2000]
+        data = data.iloc[:2000]
 
-    df_train[label] = df_train[label].astype(np.int32)
-    df = df_train.loc[(~df_train[image].duplicated(keep="first"))]
+    data[label] = data[label].astype(np.int32)
+    df = data.loc[(~data[image].duplicated(keep="first"))]
     for fold, (train_ind, valid_ind) in enumerate(
-            splitter.split(X=df[label], y=df[args.col_image_quality], groups=df[image]), 1):
+            splitter.split(X=df[label], y=df[image_quality], groups=df[image]), 1):
         if nr_fold == fold:
-            print(f"using fold {fold:02d} for train valid data split")
+            print(f"using fold {fold:02d} for train valid data split", end="\r")
             break
 
-    train_df = df_train.loc[df_train[image].isin(df[image].iloc[train_ind])]
-    valid_df = df_train.loc[df_train[image].isin(df[image].iloc[valid_ind])]
+    train_df = data.loc[data[image].isin(df[image].iloc[train_ind])]
+    valid_df = data.loc[data[image].isin(df[image].iloc[valid_ind])]
+    print(f"using fold {fold:02d} for train valid data split: {train_df.shape}, {valid_df.shape}")
     return train_df, valid_df
+
+
+def generate_submission(args: ArgumentParser, submission: pd.DataFrame) -> pd.DataFrame:
+    image, kind = args.shared_indices
+    df = submission.reset_index()[[image, args.labels[0]]]
+    df.columns = ["Id", "Label"]
+    df.set_index("Id", inplace=True)
+    df["Label"] = 1. - df["Label"]
+    print(f"\nSubmission Stats:\n{df.describe()}\nSubmission Head:\n{df.head()}")
+    return df

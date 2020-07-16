@@ -1,8 +1,11 @@
 import os
+import random
 import warnings
 from typing import Dict
 
+import numpy as np
 import pandas as pd
+import torch
 
 warnings.filterwarnings("ignore")
 
@@ -54,3 +57,14 @@ def initialize_configs(filename: str):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def seed_everything(seed: int = 42):
+    random.seed(seed)
+    os.environ["PYTHONHASHSEED"] = str(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = True
+    return
