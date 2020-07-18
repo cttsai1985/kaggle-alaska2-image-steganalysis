@@ -1,256 +1,609 @@
 import os
-import random
-import time
+import sys
 import warnings
 from argparse import ArgumentParser
-from datetime import datetime
-from glob import glob
-from typing import List, Optional, Callable, Tuple, Any, Dict, Sequence, Union
+from itertools import combinations
+from typing import Dict, Optional, Tuple, List, Callable, Any, Union
 
-import albumentations as A
-import cv2
 import numpy as np
 import pandas as pd
-import pytorch_lightning as pl
-import timm  # pretrained model
-import torch
-import torch.nn.functional as F
-from albumentations.pytorch.transforms import ToTensorV2
-# Class Balance "on fly" from @CatalystTeam
-from catalyst.data.sampler import BalanceClassSampler
-from efficientnet_pytorch import EfficientNet
-from pytorch_lightning import Trainer
-from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
-from sklearn import metrics
-from sklearn.model_selection import StratifiedKFold
-from torch import nn
-from torch import optim
-from torch.utils.data import Dataset, DataLoader
-from torch.utils.data.sampler import SequentialSampler
+from catboost import CatBoostClassifier
+from lightgbm import LGBMClassifier
+from sklearn.ensemble import RandomForestClassifier, ExtraTreesClassifier
+from sklearn.ensemble import StackingClassifier
+from sklearn.model_selection import GroupKFold, StratifiedKFold
+from sklearn.model_selection import cross_val_predict
+from xgboost import XGBClassifier
 
 warnings.filterwarnings("ignore")
 
+EXTERNAL_UTILS_LIB = "../alaska_utils"
+sys.path.append(EXTERNAL_UTILS_LIB)
 
-def index_train_test_images(args):
-    working_dir: str = args.data_dir
-    output_dir: str = args.cached_dir
-    meta_dir: str = args.meta_dir
-    file_path_image_quality: str = "image_quality.csv"
+from alaska_utils import alaska_weighted_auc
+from alaska_utils import safe_mkdir
+from alaska_utils import seed_everything
+from alaska_utils import initialize_configs
+from alaska_utils import split_train_valid_data
+from alaska_utils import configure_arguments
+from alaska_utils import generate_submission
 
-    args.file_path_all_images_info = os.path.join(output_dir, "all_images_info.parquet")
-    args.file_path_train_images_info = os.path.join(output_dir, "train_images_info.parquet")
-    args.file_path_test_images_info = os.path.join(output_dir, "test_images_info.parquet")
-    file_paths: List[str] = [
-        args.file_path_all_images_info, args.file_path_train_images_info, args.file_path_test_images_info]
 
-    if all([os.path.exists(path) for path in file_paths]):
-        if not args.refresh_cache:
-            return
+def check_and_filter_proba_files(args: ArgumentParser, files_list: List[str]) -> List[str]:
+    ret_files = list()
+    for i, basename in enumerate(files_list):
+        file_path = os.path.join(args.cached_dir, basename)
+        if not os.path.exists(file_path):
+            print(f"file_path does not exist: {file_path}")
+            continue
 
-    file_path_image_quality = os.path.join(meta_dir, file_path_image_quality)
-    df_quality: pd.DataFrame = pd.DataFrame()
-    if os.path.exists(file_path_image_quality):
-        df_quality = pd.read_csv(file_path_image_quality).set_index(args.shared_indices)
-        print(f"read in image quality file: {df_quality.shape}")
-    else:
-        print(f"image quality not exist: {file_path_image_quality}")
-        raise ValueError()
+        ret_files.append(basename)
 
-    # process
-    list_all_images: List[str] = list(glob(os.path.join(working_dir, "*", "*.jpg")))
-    df_train = pd.DataFrame({"file_path": list_all_images})
-    df_train["image"] = df_train["file_path"].apply(lambda x: os.path.basename(x))
-    df_train["kind"] = df_train["file_path"].apply(lambda x: os.path.split(os.path.dirname(x))[-1])
-    df_train["label"] = df_train["kind"].map({kind: label for label, kind in enumerate(args.labels)})
-    df_train.set_index(args.shared_indices, inplace=True)
+    return ret_files
 
-    if not df_quality.empty:
-        df_train = df_train.join(df_quality["quality"])
 
-    print(f"{df_train.nunique()}")
-    df_train.sort_values("image", inplace=True)
-    df_train.to_parquet(args.file_path_all_images_info)
-    df_train.loc[df_train["label"].notnull()].to_parquet(args.file_path_train_images_info)
-    df_train.loc[df_train["label"].isnull()].to_parquet(args.file_path_test_images_info)
+def generate_stacking_data_split(
+        args: ArgumentParser, configs,
+        train_indices: pd.DataFrame, valid_indices: pd.DataFrame) -> Dict[str, pd.DataFrame]:
+    image, kind = args.shared_indices
+
+    df_meta_info = pd.read_parquet(os.path.join(args.cached_dir, configs["image_stats"]))
+
+    ret = list()
+    for i, s in enumerate(configs["image_proba"]):
+        basename = s.split("__")
+        arch_name: str = basename[1]
+        metrics: str = basename[2]
+
+        file_path: str = os.path.join(args.cached_dir, s)
+        df = pd.read_parquet(file_path)
+        df.rename(columns={c: "_".join([arch_name, metrics, c]) for c in df.columns}, inplace=True)
+        print(f"read {df.shape} from {file_path}")
+        ret.append(df)
+
+    df_proba = pd.concat(ret, axis=1)
+    df_proba = df_proba.join(df_meta_info)
+    columns = df_proba.columns.tolist() + [args.col_image_quality]
+
+    data = dict()
+    df_train = train_indices.join(df_proba, how='left', on=args.shared_indices).set_index(args.shared_indices)
+    data["train_x"] = df_train.reindex(columns=columns)
+    data["train_y"] = (df_train[args.col_enum_class] > .1).astype(np.int32)
+    data["train_groups"] = df_train[[args.col_image_quality]]
+
+    df_valid = valid_indices.join(df_proba, how='left', on=args.shared_indices).set_index(args.shared_indices)
+    data["valid_x"] = df_valid.reindex(columns=columns)
+    data["valid_y"] = (df_valid[args.col_enum_class] > .1).astype(np.int32)
+    data["valid_groups"] = df_valid[[args.col_image_quality]]
+
+    df_test = pd.read_parquet(args.file_path_test_images_info)
+    df_test = df_test.reset_index().join(df_proba, how='left', on=args.shared_indices)
+    data["test_x"] = df_test.set_index(image).reindex(columns=columns)
+    print(f"Using Features {len(columns)}: {columns}")
+    # assert data["valid_x"].columns == data["test_x"].columns
+    return data
+
+
+def get_inference_file_score(
+        args: ArgumentParser, data: pd.DataFrame, train_indices: pd.DataFrame, valid_indices: pd.DataFrame,
+        eval_metric_func: Callable, label: str = "Cover") -> Tuple[pd.DataFrame, float]:
+    image, kind = args.shared_indices
+
+    df_train = train_indices.join(data, how='left', on=args.shared_indices)
+    df_valid = valid_indices.join(data, how='left', on=args.shared_indices)
+
+    queue: List[Tuple[str, pd.DataFrame]] = [("train_split", df_train), ("valid_split", df_valid), ]
+    ret_df: List[pd.DataFrame] = list()
+    ret_score: List[float] = list()
+    for name, df in queue:
+        stats = df.groupby(args.col_image_quality).apply(
+            lambda x: eval_metric_func((x[kind] != label).values, (1. - x[label]).values))
+        ret_df.append(stats.rename(name))
+        ret_score.append(eval_metric_func((df[kind] != label).values, (1. - df[label]).values))
+
+    df = pd.concat(ret_df, axis=1).T
+    df["all_quality"] = ret_score
+    return df, ret_score[-1]
+
+
+def scoring_single_proba_file(
+        args: ArgumentParser, file_path: str, eval_metric_func: Callable, train_indices: List, valid_indices: List):
+    arch_name: str = file_path.split("__")[1]
+    file_path: str = os.path.join(args.cached_dir, file_path)
+
+    df_proba = pd.read_parquet(file_path)
+    stats, score = get_inference_file_score(
+        args, data=df_proba, eval_metric_func=eval_metric_func, train_indices=train_indices,
+        valid_indices=valid_indices)
+    print(f"inference file: {file_path}:\n{stats}")
+
+    df = get_test_sub(args, df_proba)
+    df.to_csv(os.path.join(args.output_dir, f"submission_{arch_name}_{score:.06f}.csv"))
     return
 
 
-def initialize_configs(filename: str):
-    if not os.path.exists(filename):
-        raise ValueError("Spec file {spec_file} does not exist".format(spec_file=filename))
+def get_test_sub(args: ArgumentParser, df_proba: pd.DataFrame) -> pd.DataFrame:
+    image, kind = args.shared_indices
+    df_test = df_proba.reset_index()
+    df_test = df_test.loc[~df_test[kind].isin(args.labels)]
+    return generate_submission(args=args, submission=df_test)
 
-    module_name = filename.split(os.sep)[-1].replace(".", "")
 
-    import importlib.util
-    spec = importlib.util.spec_from_file_location(module_name, filename)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+def generate_stacked_submission(
+        args, stacker, eval_metric_func: Callable, data: Dict[str, Union[pd.DataFrame, pd.Series]],
+        train_on_validation: bool = True):
+    if not train_on_validation:
+        stacker.fit(data["train_x"], data["train_y"])
+    elif train_on_validation:
+        stacker.fit(data["valid_x"], data["valid_y"])
+
+    score = eval_metric_func(data["valid_y"], stacker.predict_proba(data["valid_x"])[:, 1])
+
+    file_path = os.path.join(args.output_dir, f"submission_stacker_metric_{score:.06f}_tr.csv")
+    if train_on_validation:
+        file_path = os.path.join(args.output_dir, f"submission_stacker_metric_{score:.06f}_val.csv")
+
+    subm = pd.DataFrame({"Label": stacker.predict_proba(data["test_x"])[:, 1]}, index=data["test_x"].index.rename("Id"))
+    print(f"\nSubmission file: {file_path}\nStats:\n{subm.describe()}\nHead:\n{subm.head()}")
+    subm.to_csv(file_path)
+    return
+
+
+# Calib: sklearn.isotonic.IsotonicRegression
+# GPSINIFF
+# Stacking
+
+
+import optuna
+from optuna.pruners import SuccessiveHalvingPruner
+from optuna.samplers import TPESampler
+
+
+class OptunaTuner:
+    def __init__(
+            self, eval_metric_func: Callable, estimator, init_params: Optional[Dict],
+            search_space: Dict[str, Dict[str, Any]], n_startup_trials: int = 5, n_trials: int = 10,
+            greater_is_better: bool = True):
+        self.sampler = TPESampler(
+            consider_prior=True, prior_weight=1.0, consider_magic_clip=True, consider_endpoints=True,
+            n_startup_trials=n_startup_trials, n_ei_candidates=24, )
+        self.pruner = SuccessiveHalvingPruner(reduction_factor=4, min_early_stopping_rate=0)
+        direction = "maximize" if greater_is_better else "minimize"
+        self.study = optuna.create_study(
+            storage=None, sampler=self.sampler, pruner=self.pruner, study_name="foobar", direction=direction,
+            load_if_exists=False)
+
+        self.eval_metric_func: Callable = eval_metric_func
+        self.n_trials: int = n_trials
+        self.status: bool = False
+        #
+        self.estimator = estimator
+        self.init_params: Dict[str, Any] = init_params
+        self.search_space: Dict[str, Dict[str, Any]] = search_space
+        #
+        self.data: Optional[Dict[str, pd.DataFrame]] = None
+        self.params = self.init_params.copy()
+
+    def _get_suggested_params_from_trail(self, trial) -> Dict:
+        suggest_params = dict()
+        for k, v in self.search_space.items():
+            if v['type'] == 'categorical':
+                suggest_params[k] = trial.suggest_categorical(k, v['categorical'])
+
+            elif v['type'] == 'discrete':
+                suggest_params[k] = trial.suggest_discrete_uniform(
+                    k, low=v['low'], high=v['high'], q=v['step'], )
+
+            elif v['type'] == 'int':
+                suggest_params[k] = trial.suggest_int(k, low=v['low'], high=v['high'])
+
+            elif v['type'] == 'loguniform':
+                suggest_params[k] = trial.suggest_loguniform(k, low=v['low'], high=v['high'], )
+
+            elif v['type'] == 'uniform':
+                suggest_params[k] = trial.suggest_uniform(k, low=v['low'], high=v['high'], )
+
+        return suggest_params
+
+    def search(self, data: Dict[str, pd.DataFrame]):
+        self.data = data
+        self.study.optimize(self.objective, n_trials=self.n_trials)
+        self.status = True
+        trial = self.study.best_trial
+        self.params.update(trial.params)
+        print(f"best params: {self.params}")
+        return self
+
+    def objective(self, trial) -> float:
+        params = self.init_params.copy()
+        params.update(self._get_suggested_params_from_trail(trial))
+        stacker = self.estimator(**params)
+        stacker.fit(self.data["train_x"], self.data["train_y"])
+        return self.eval_metric_func(self.data["valid_y"], stacker.predict_proba(self.data["valid_x"])[:, 1])
+
+    @property
+    def best_params_(self) -> Dict:
+        if not self.status:
+            raise NotImplementedError()
+
+        print(f"best params: {self.params}")
+        return self.params
+
+
+scikit_parameters_repos = {
+
+    "LinearXGBClassifier": {
+        "estimator_gen": XGBClassifier,
+
+        "init_params": {
+            "booster": "gblinear",
+            "objective": "binary:logistic",
+        },
+
+        "search_space": {
+            "n_estimators": {"type": "int", "low": 25, "high": 1000},
+            "learning_rate": {"type": "loguniform", "low": .001, "high": .1},
+            "reg_alpha": {"type": "loguniform", "low": 1e-03, "high": 1.},
+            "reg_lambda": {"type": "loguniform", "low": 1e-03, "high": 10.},
+            "scale_pos_weight": {"type": "loguniform", "low": 1., "high": 5.},
+            "subsample": {"type": "uniform", "low": .5, "high": .95},
+        },
+    },
+
+    "HistXGBClassifier": {
+        "estimator_gen": XGBClassifier,
+
+        "init_params": {
+            "base_score": 0.5,
+            "booster": "gbtree",
+            "colsample_bylevel": 1,
+            "colsample_bynode": 1,
+            "colsample_bytree": 1,
+            "gamma": 0,
+            # "importance_type": "gain",
+            "learning_rate": 0.1,
+            "max_delta_step": 0,
+            "max_depth": 5,
+            "min_child_weight": 1,
+            "missing": None,
+            "n_estimators": 500,
+            # "n_jobs": N_JOBS,
+            "objective": "binary:logistic",
+            "random_state": 42,
+            "reg_alpha": 0,
+            "reg_lambda": 1,
+            "scale_pos_weight": 1,
+            "seed": 42,
+            "silent": True,
+            "subsample": 1,
+            "verbosity": 0,
+            "max_leaves": 7,
+            "grow_policy": "lossguide",
+            # "tree_method": "gpu_hist",
+            "tree_method": "hist",
+        },
+
+        "search_space": {
+            "colsample_bylevel": {"type": "uniform", "low": .25, "high": .95},
+            # "colsample_bynode": {"type": "uniform", "low": .25, "high": .95},
+            "colsample_bytree": {"type": "uniform", "low": .10, "high": .50},
+            "gamma": {"type": "loguniform", "low": 0.001, "high": 10.},
+            "learning_rate": {"type": "loguniform", "low": 0.001, "high": .1},
+            "max_delta_step": {"type": "int", "low": 1, "high": 5},
+            "max_depth": {"type": "int", "low": 4, "high": 8},
+            "min_child_weight": {"type": "int", "low": 1, "high": 24},
+            # "n_estimators": {"type": "int", "low": 200, "high": 5000},
+            "max_bin": {"type": "categorical", "categorical": [32, 48, 64, 80, 96, 112, 128, 144, 160, 192, 228, 256]},
+            "reg_alpha": {"type": "loguniform", "low": 0.001, "high": 1.},
+            "reg_lambda": {"type": "loguniform", "low": 0.1, "high": 10.},
+            # "scale_pos_weight": {"type": "loguniform", "low": 1., "high": 5.},
+            "subsample": {"type": "uniform", "low": .25, "high": .95},
+            # "grow_policy": {"type": "categorical", "categorical": ["depthwise", "lossguide"]},
+            "max_leaves": {"type": "int", "low": 7, "high": 23},
+        },
+    },
+
+    "LGBMClassifier": {
+        "estimator_gen": LGBMClassifier,
+
+        "init_params": {
+            "metric_freq": 100,
+            "boosting_type": "gbdt",
+            "class_weight": None,
+            "colsample_bytree": 1.0,
+            "importance_type": "gain",
+            "learning_rate": 0.1,
+            "max_depth": -1,
+            "min_child_samples": 20,
+            "min_child_weight": 0.001,
+            "min_split_gain": 0.0,
+            "n_estimators": 100,
+            "n_jobs": -1,
+            "num_leaves": 31,
+            "objective": None,
+            "random_state": None,
+            "reg_alpha": 0.0,  # default=0.0
+            "reg_lambda": 0.0,  # default=0.0
+            "silent": True,
+            "subsample": 0.7,  # default=1.0
+            "subsample_for_bin": 200000,
+            "subsample_freq": 1,  # default=0
+        },
+
+        "search_space": {
+            "colsample_bytree": {"type": "uniform", "low": .2, "high": .9},
+            "learning_rate": {"type": "loguniform", "low": 0.01, "high": 0.2},
+            "max_depth": {"type": "int", "low": 12, "high": 24},
+            "min_child_samples": {"type": "int", "low": 10, "high": 250},
+            "min_child_weight": {"type": "loguniform", "low": 0.001, "high": 0.1},
+            "min_split_gain": {"type": "loguniform", "low": 0.001, "high": 0.1},
+            "n_estimators": {"type": "int", "low": 100, "high": 1000},
+            "num_leaves": {"type": "int", "low": 63, "high": 255},
+            "reg_alpha": {"type": "loguniform", "low": 0.001, "high": 10.},
+            "reg_lambda": {"type": "loguniform", "low": 0.001, "high": 10.},
+            "subsample": {"type": "uniform", "low": .25, "high": .95},
+        },
+
+        "params": {
+            "metric_freq": 100, "boosting_type": "gbdt", "class_weight": None, "colsample_bytree": 0.3351013222509879,
+            "importance_type": "gain", "learning_rate": 0.026106125987858088, "max_depth": 17, "min_child_samples": 196,
+            "min_child_weight": 0.003442235465150888, "min_split_gain": 0.006466058806990055, "n_estimators": 479,
+            "n_jobs": -1, "num_leaves": 63, "objective": None, "random_state": None, "reg_alpha": 1.4689709120163557,
+            "reg_lambda": 1.4882227344657941, "silent": True, "subsample": 0.736022596429584,
+            "subsample_for_bin": 200000, "subsample_freq": 1},
+
+    },
+
+    "DartLGBMClassifier": {
+        "estimator_gen": LGBMClassifier,
+
+        "init_params": {
+            "metric_freq": 100,
+            "boosting_type": "gbdt",
+            "class_weight": None,
+            "colsample_bytree": 1.0,
+            "importance_type": "gain",
+            "learning_rate": 0.1,
+            "max_depth": -1,
+            "min_child_samples": 20,
+            "min_child_weight": 0.001,
+            "min_split_gain": 0.0,
+            "n_estimators": 100,
+            "n_jobs": -1,
+            "num_leaves": 31,
+            "objective": None,
+            "random_state": None,
+            "reg_alpha": 0.0,  # default=0.0
+            "reg_lambda": 0.0,  # default=0.0
+            "silent": True,
+            "subsample": 0.7,  # default=1.0
+            "subsample_for_bin": 200000,
+            "subsample_freq": 1,  # default=0
+            # dart
+            "drop_rate": 0.1,  # default=0.1
+            "max_drop": 50,  # default=50
+            "skip_drop": .5,  # defalt=0.5
+            "uniform_drop": False,
+            "drop_seed": 4,
+            "verbosity": -1,
+        },
+
+        "search_space": {
+            "colsample_bytree": {"type": "uniform", "low": .2, "high": .9},
+            "learning_rate": {"type": "loguniform", "low": 0.01, "high": 0.2},
+            "max_depth": {"type": "int", "low": 12, "high": 24},
+            "min_child_samples": {"type": "int", "low": 10, "high": 250},
+            "min_child_weight": {"type": "loguniform", "low": 0.001, "high": 0.1},
+            "min_split_gain": {"type": "loguniform", "low": 0.001, "high": 0.1},
+            "n_estimators": {"type": "int", "low": 100, "high": 1000},
+            "num_leaves": {"type": "int", "low": 63, "high": 255},
+            "reg_alpha": {"type": "loguniform", "low": 0.001, "high": 10.},
+            "reg_lambda": {"type": "loguniform", "low": 0.001, "high": 10.},
+            "subsample": {"type": "uniform", "low": .25, "high": .95},
+            # dart
+            "drop_rate": {"type": "uniform", "low": .05, "high": .15},  # default=0.1
+            "max_drop": {"type": "int", "low": 25, "high": 100},  # default = 50,
+            "skip_drop": {"type": "uniform", "low": .25, "high": .75},  # default = 0.5,
+            "uniform_drop": {"type": "categorical", "categorical": [False, True]},
+        },
+
+        "params": {
+            "metric_freq": 100, "boosting_type": "gbdt", "class_weight": None, "colsample_bytree": 0.41751254205961874,
+            "importance_type": "gain", "learning_rate": 0.010888580762845636, "max_depth": 13, "min_child_samples": 212,
+            "min_child_weight": 0.0041204309054919735, "min_split_gain": 0.001872930917084381, "n_estimators": 933,
+            "n_jobs": -1, "num_leaves": 66, "objective": None, "random_state": None, "reg_alpha": 3.3540823356593945,
+            "reg_lambda": 0.0524168175343131, "silent": True, "subsample": 0.6159663776598608,
+            "subsample_for_bin": 200000, "subsample_freq": 1, "drop_rate": 0.05934164873800164, "max_drop": 87,
+            "skip_drop": 0.27039555991592634, "uniform_drop": True, "drop_seed": 4, "verbosity": -1}
+    },
+
+    "BayesianCatBClassifierGPU": {
+
+        "estimator_gen": CatBoostClassifier,
+
+        "init_params_for_search": {
+            "learning_rate": 0.1,
+            "loss_function": "MultiClassOneVsAll",
+            "eval_metric": "Logloss",  # ["MultiClassOneVsAll", "MultiClass", "CrossEntropy", "Logloss" ],
+            # "metric_period": 100,
+            "bagging_temperature": 1.0,  # "Bayesian"
+            # "subsample": .75,  # "Bernoulli"
+            "max_depth": 16,
+            "n_estimators": 1000,
+            # "colsample_bylevel": None,
+            "random_state": 42,
+            "reg_lambda": 3.0,
+            # "objective": None,
+            "max_bin": None,
+            "bootstrap_type": "Bayesian",  # ["Bayesian", "Bernoulli", "Poisson", ] # Poisson for GPU,
+            "grow_policy": "Lossguide",  # ["SymmetricTree", "Depthwise", "Lossguide"]
+            "min_child_samples": 1,
+            "max_leaves": None,  # < 63, only for "Lossguide"
+            # "one_hot_max_size": None,  #
+            "boosting_type": "Plain",  # ["Ordered", "Plain"]
+            "logging_level": "Silent",
+            "best_model_min_trees": 250,
+            # "leaf_estimation_method": "Gradient",  # ["Gradient", "Newton"]
+            "task_type": "GPU",
+            "devices": "0:1:2",
+        },
+
+        "search_space": {
+            "bagging_temperature": {"type": "loguniform", "low": 0.1, "high": 100.},  # "Bayesian"
+            # "grow_policy": {"type": "categorical", "categorical": ["SymmetricTree", "Depthwise", "Lossguide"]},
+            "learning_rate": {"type": "loguniform", "low": 0.001, "high": 0.25},
+            "max_depth": {"type": "int", "low": 4, "high": 16},
+            "min_child_samples": {"type": "int", "low": 1, "high": 250},
+            # "n_estimators": {"type": "int", "low": 200, "high": 5000},
+            "max_leaves": {"type": "int", "low": 7, "high": 63},  # only with "Lossguide"
+            "reg_lambda": {"type": "loguniform", "low": 0.1, "high": 100.},
+            # "subsample": {"type": "uniform", "low": .25, "high": .95},  # "Bernoulli"
+            "max_bin": {"type": "categorical", "categorical": [32, 48, 64, 80, 96, 112, 128, 144, 160, 192, 228, 255]},
+        },
+    },
+}
+
 
 
 def main(args):
-    args.labels: List[str] = ["Cover", "JMiPOD", "JUNIWARD", "UERD"]
-    args.shared_indices: List[str] = ["image", "kind"]
-
     seed_everything(args.init_seed)
-    index_train_test_images(args)
+    args = configure_arguments(args)
 
-    if "efficientnet" in args.model_arch:
-        model = EfficientNet.from_pretrained(
-            args.model_arch, advprop=False, in_channels=3, num_classes=len(args.labels))
-    else:
-        # "seresnet34", resnext50_32x4d"
-        model = timm.create_model(
-            args.model_arch, pretrained=True, num_classes=len(args.labels), in_chans=3, drop_rate=.5)
+    configs = initialize_configs(args.configs).configs
 
-    # loading info for training
-    training_configs = None
-    validation_configs = None
-    training_records = list()
-    valid_records = list()
-    if not args.inference_only:
-        # configs
-        validation_configs = BaseConfigs.from_file(file_path=args.valid_configs)
-        training_configs = BaseConfigs.from_file(file_path=args.train_configs)
-        training_configs.loss = LabelSmoothing(smoothing=.05)
+    ret_files = check_and_filter_proba_files(args, configs["image_proba"])
+    configs["image_proba"] = ret_files
 
-        # split data
-        skf = StratifiedKFold(n_splits=5)
-        train_df, valid_df = split_data(args=args, splitter=skf)
+    eval_metric_func = alaska_weighted_auc
+    train_indices, valid_indices = split_train_valid_data(args=args, splitter=StratifiedKFold(n_splits=5), nr_fold=1)
+    if False:
+        for basename in configs["image_proba"]:
+            scoring_single_proba_file(args, basename, eval_metric_func, train_indices, valid_indices)
 
-        #
-        training_records = process_images_to_records(args, df=train_df)
-        valid_records = process_images_to_records(args, df=valid_df)
+    #
+    if args.combinations:
+        ret = [pd.read_parquet(os.path.join(args.cached_dir, basename)) for basename in ret_files]
+        for i in range(2, len(ret)):
+            for j, s in zip(combinations(ret, i), combinations(ret_files, i)):
+                df = pd.concat(j, axis=0).groupby(level=args.shared_indices).mean()
+                stats, score = get_inference_file_score(
+                    args, data=df, eval_metric_func=eval_metric_func, train_indices=train_indices,
+                    valid_indices=valid_indices)
+                print(f"\ninference file {len(s)}: {s}:\n{stats}")
+                df = get_test_sub(args, df)
+                df.to_csv(os.path.join(args.output_dir, f"submission_{score:.06f}_ens{len(s)}.csv"))
 
-    # use lightning
-    if args.use_lightning:
-        model = BaseLightningModule(
-            model, training_configs=training_configs, training_records=training_records,
-            valid_configs=validation_configs, valid_records=valid_records, eval_metric_name=args.eval_metric,
-            eval_metric_func=alaska_weighted_auc)
+        return
 
-        model = training_lightning(args=args, model=model)
-        model.freeze()
+    data = generate_stacking_data_split(args, configs, train_indices, valid_indices)
 
-    # raw
-    if args.gpus is not None:
-        model = model.cuda()
-        device = torch.device("cuda:0")
+    # HPO
+    #configs = scikit_parameters_repos["LinearXGBClassifier"]
+    #configs = scikit_parameters_repos["LGBMClassifier"]
+    configs = scikit_parameters_repos["DartLGBMClassifier"]
 
-    if not args.inference_only and not args.use_lightning:
-        train_dataset = DatasetRetriever(records=training_records, transforms=training_configs.transforms)
-        train_loader = DataLoader(
-            train_dataset,
-            sampler=BalanceClassSampler(labels=train_dataset.get_labels(), mode="downsampling"),
-            batch_size=training_configs.batch_size,
-            pin_memory=False,
-            drop_last=True,
-            num_workers=training_configs.num_workers,
-        )
-        validation_dataset = DatasetRetriever(records=valid_records, transforms=training_configs.transforms)
-        val_loader = DataLoader(
-            validation_dataset,
-            batch_size=validation_configs.batch_size,
-            num_workers=validation_configs.num_workers,
-            shuffle=False,
-            sampler=SequentialSampler(validation_dataset),
-            pin_memory=False,
-        )
+    estimator = configs["estimator_gen"]
+    init_params = configs["init_params"]
+    search_space = configs["search_space"]
 
-        fitter = Fitter(model=model, device=device, config=training_configs)
-        if args.load_checkpoint and os.path.exists(args.checkpoint_path):
-            fitter.load(args.checkpoint_path, model_weights_only=args.load_weights_only)
-        # fitter.load(f"{fitter.base_dir}/best-checkpoint-024epoch.bin")
-        fitter.fit(train_loader, val_loader)
-
-    # Test
-    submission = do_inference(args, model=model)
-    score = do_evaluate(submission)
-    if args.inference_proba:
-        print(f"Inference TTA: {score:.04f}")
-        file_path = os.path.join(args.cached_dir, f"proba__arch_{args.model_arch}__metric_{score:.4f}.parquet")
-        submission.to_parquet(file_path)
-    else:
-        print(f"Inference: {score:.04f}")
-        df = submission.reset_index()[["image", "Cover"]]
-        df.columns = ["Id", "Label"]
-        df.set_index("Id", inplace=True)
-        df["Label"] = 1. - df["Label"]
-        df.to_csv("submission.csv", index=True)
-        print(f"\nSubmission Stats:\n{df.describe()}\nSubmission:\n{df.head()}")
+    solver = OptunaTuner(
+        init_params=init_params, search_space=search_space, estimator=estimator, eval_metric_func=eval_metric_func,
+        n_startup_trials=100, n_trials=1000, )
+    solver.search(data)
+    generate_stacked_submission(
+        args, stacker=estimator(**solver.best_params_), eval_metric_func=eval_metric_func, data=data,
+        train_on_validation=False)
+    generate_stacked_submission(
+        args, stacker=estimator(**solver.best_params_), eval_metric_func=eval_metric_func, data=data,
+        train_on_validation=True)
 
     return
+    #import pdb;
+    #pdb.set_trace()
 
+    #    params = {"booster": "gblinear", "n_estimators": 100, "objective": "binary:logistic", "learning_rate": .05, "colsample_bylevel": .9, "reg_lambda": .005, "reg_alpha": .001}
 
-def inference_proba(args, configs, dataset: Dataset, model: nn.Module) -> pd.DataFrame:
-    data_loader = DataLoader(
-        dataset, batch_size=configs.batch_size, shuffle=False, num_workers=configs.num_workers, drop_last=False, )
+    #    params = {"booster": "gblinear", "n_estimators": 100, "objective": "binary:logistic", "reg_lambda": 1e-6, "reg_alpha":1e-6, "subsample": .7}
 
-    model.eval()
-    outputs = list()
-    result = {k: list() for k in args.shared_indices}
-    total_num_batch: int = int(len(dataset) / configs.batch_size)
-    for step, (image_kinds, image_names, images) in enumerate(data_loader):
-        print(
-            f"Test Batch Proba: {step:03d} / {total_num_batch:d}, progress: {100. * step / total_num_batch: .02f} %",
-            end="\r")
+    # stacker.fit(data["valid_x"], data["valid_y"])
 
-        result["image"].extend(image_names)
-        result["kind"].extend(image_kinds)
-        outputs.append(nn.functional.softmax(model(images.cuda()), dim=1).data.cpu())
+    #    params = {"booster": "gbtree", "n_estimators": 1000, "objective": "binary:logistic", "reg_lambda": 1e-6,  "reg_alpha": 1e-6}
 
-    y_pred = pd.DataFrame(torch.cat(outputs, dim=0).numpy(), columns=args.labels)
-    submission = pd.concat([pd.DataFrame(result), y_pred], axis=1).set_index(args.shared_indices).sort_index()
+    #    params = {"booster": "gblinear", "n_estimators": 100, "objective": "binary:logistic", "colsample_bylevel": .5, "learning_rate": 0.1, "subsample": .7}
 
-    print(f"\nFinish Test Proba: {submission.shape}, Stats:\n{submission.describe()}")
-    return submission
+    #    stacker = XGBClassifier(**params)
+    #    stacker.fit(data["train_x"], data["train_y"])
+    #    eval_metric_func(data["valid_y"], stacker.predict_proba(data["valid_x"])[:, 1])
 
+    estimators = list()
 
-def do_evaluate(submission: pd.DataFrame, label: str = "Cover") -> float:
-    df = submission.reset_index()[["kind", "image", label]]
-    df = df.loc[df["kind"].isin(args.labels)]
-    df["Label"] = 1. - df[label]
-    return alaska_weighted_auc(df["kind"].isin(args.labels[1:]), df["Label"].values)
+    params = {
+        "boosting_type": "gbdt", "colsample_bytree": 0.7, "learning_rate": 0.05, "max_depth": 20,
+        "min_child_samples": 100, "min_child_weight": 0.002, "min_split_gain": 0.006, "n_estimators": 100,
+        "n_jobs": 1, "num_leaves": 124, "random_state": None, "reg_alpha": 0.002, "reg_lambda": 0.002,
+        "silent": True, "subsample": 0.65, "subsample_freq": 1
+    }
+    model = LGBMClassifier(**params)
+    estimators.append(("lgbm", model))
 
+    params = {
+        "boosting_type": "dart", "colsample_bytree": 0.8, "learning_rate": 0.1, "max_depth": 20,
+        "min_child_samples": 10, "min_child_weight": 0.005, "min_split_gain": 0.0025, "n_estimators": 100,
+        "n_jobs": 3, "num_leaves": 100, "random_state": None, "reg_alpha": 2.25,
+        "reg_lambda": 0.005, "silent": True, "subsample": 0.75, "subsample_freq": 1, "drop_rate": 0.05,
+        "max_drop": 35, "skip_drop": 0.7, "uniform_drop": False, "drop_seed": 4, "importance_type": "gain",
+    }
+    model = LGBMClassifier(**params)
+    estimators.append(("dart", model))
 
-def do_inference(args, model: nn.Module):
-    test_configs = BaseConfigs.from_file(file_path=args.test_configs)
-    df_test = pd.read_parquet(args.file_path_test_images_info).reset_index()
-    if args.inference_proba:
-        df_test = pd.read_parquet(args.file_path_all_images_info).reset_index()
+    params = {
+        "n_estimators": 1000, "max_depth": 8, "max_leaf_nodes": 31, "n_jobs": 3,
+        # "class_weight": ["balanced", None, "balanced_subsample"],
+    }
+    model = RandomForestClassifier(**params)
+    estimators.append(("rf", model))
 
-    if args.debug:
-        df_test = df_test.iloc[:2000]  # sample(n=2000, random_state=42)
+    params = {
+        "n_estimators": 1000, "max_depth": 8, "max_leaf_nodes": 31, "n_jobs": 3,
+        # "class_weight": ["balanced", None, "balanced_subsample"],
+    }
+    model = ExtraTreesClassifier(**params)
+    estimators.append(("xt", model))
 
-    test_records = process_images_to_records(args, df=df_test)
-    if args.tta:
-        collect = list()
-        for i, tta in enumerate(test_configs.tta_transforms, 1):
-            print(f"Inference TTA: {i:02d} / {len(test_configs.tta_transforms):02d} rounds")
-            dataset = SubmissionRetriever(records=test_records, transforms=tta, )
-            df = inference_proba(args, test_configs, dataset=dataset, model=model)
-            collect.append(df)
+    params = {
+        "colsample_bylevel": 0.7, "colsample_bytree": 0.25, "gamma": 0.005, "learning_rate": .05, "max_depth": 6,
+        "min_child_weight": 25, "n_estimators": 500, "n_jobs": 3, "subsample": 0.7, "verbosity": 1,
+        "silence": True, "tree_method": "hist", "max_bin": 32,
+    }
+    model = XGBClassifier(**params)
+    estimators.append(("xgb", model))
 
-            score = do_evaluate(df)
-            print(f"Inference TTA: {i:02d} / {len(test_configs.tta_transforms):02d} rounds: {score:.04f}")
+    skf = GroupKFold(n_splits=5)
+    for name, m in estimators:
+        preds = cross_val_predict(
+            m, data["train_x"], y=data["train_y"], groups=data["train_groups"], cv=skf, method='predict_proba',
+            n_jobs=args.n_jobs, verbose=1)
+        score = alaska_weighted_auc(data["train_y"], preds[:, 1])
 
-        df = pd.concat(collect, ).groupby(level=args.shared_indices).mean()
-        print(f"\nFinish Test Proba: {df.shape}, Stats:\n{df.describe()}")
-        return df
+        m.fit(data["train_x"], y=data["train_y"])
+        print(f"{name}: {score:.6f}\n")
+        preds = pd.DataFrame({"Label": m.predict_proba(data["test_x"])[:, 1]}, index=data["test_x"].index, )
+        preds.index.name = "Id"
+        preds.to_csv(f"submission_{name}_{score:.06f}.csv", index=True)
+        print(f"\nSubmission Stats:\n{preds.describe()}\nSubmission:\n{preds.head()}")
 
-    dataset = SubmissionRetriever(records=test_records, transforms=test_configs.transforms, )
-    df = inference_proba(args, test_configs, dataset=dataset, model=model)
-    return df
+    print("procesing stacking")
+    stacker = XGBClassifier(**{"booster": "gblinear", "lambda": .005, "alpha": .001})
+    #
+    clf = StackingClassifier(
+        estimators, final_estimator=stacker, cv=skf, stack_method='predict_proba', n_jobs=args.n_jobs,
+        passthrough=False, verbose=1).fit(data["train_x"], y=data["train_y"])
 
-
-def safe_mkdir(directory: str) -> bool:
-    if not os.path.exists(directory):
-        os.makedirs(directory)
-        print(f"make dir: {directory}")
-        return True
-
-    print(f"skip making dir: {directory}")
-    return False
+    preds = pd.DataFrame({"Label": clf.predict_proba(data["test_x"])[:, 1]}, index=data["test_x"].index, )
+    preds.index.name = "Id"
+    preds.to_csv("submission_stacked.csv", index=True)
+    print(f"\nSubmission Stats:\n{preds.describe()}\nSubmission:\n{preds.head()}")
+    return
 
 
 if "__main__" == __name__:
@@ -261,17 +614,12 @@ if "__main__" == __name__:
     default_model_dir: str = "../input/alaska2-image-steganalysis-models/"
     default_data_dir: str = "../input/alaska2-image-steganalysis/"
     #
-    default_model_arch: str = "efficientnet-b2"
-    #
-    default_train_configs: str = "../configs/train_baseline.py"
-    default_valid_configs: str = "../configs/valid_baseline.py"
-    default_test_configs: str = "../configs/test_baseline.py"
+    default_configs: str = "../configs/stacking_baseline.py"
     #
     default_n_jobs: int = 8
     default_init_seed: int = 42
     #
     default_eval_metric_name: str = "weighted_auc"
-
 
     parser = ArgumentParser()
     parser.add_argument("--output-dir", type=str, default=default_output_dir, help="folder for output")
@@ -281,24 +629,14 @@ if "__main__" == __name__:
     parser.add_argument("--data-dir", type=str, default=default_data_dir, help="folder for data")
     #
     parser.add_argument("--eval-metric", type=str, default=default_eval_metric_name, help="eval metric name")
-    parser.add_argument("--model-arch", type=str, default=default_model_arch, help="model arch")
-    parser.add_argument("--checkpoint-path", type=str, default=None, help="model checkpoint")
-    parser.add_argument("--load-checkpoint", action="store_true", default=False, help="load checkpoint")
-    parser.add_argument("--load-weights-only", action="store_true", default=False, help="load weights only")
     # configs
-    parser.add_argument("--train-configs", type=str, default=default_train_configs, help="configs for training")
-    parser.add_argument("--valid-configs", type=str, default=default_valid_configs, help="configs for validation")
-    parser.add_argument("--test-configs", type=str, default=default_test_configs, help="configs for test")
-    # functional
-    parser.add_argument("--tta", action="store_true", default=False, help="perform test time augmentation")
-    parser.add_argument("--inference-proba", action="store_true", default=False, help="only perform inference proba")
-    parser.add_argument("--inference-only", action="store_true", default=False, help="only perform inference")
-    parser.add_argument("--use-lightning", action="store_true", default=False, help="using lightning trainer")
+    parser.add_argument("--configs", type=str, default=default_configs, help="configs for stacking")
+    #
+    parser.add_argument("--combinations", action="store_true", default=False, help="combinations")
+    #
     parser.add_argument("--refresh-cache", action="store_true", default=False, help="refresh cached data")
     parser.add_argument("--n-jobs", type=int, default=default_n_jobs, help="num worker")
     parser.add_argument("--init-seed", type=int, default=default_init_seed, help="initialize random seed")
-    #
-    parser.add_argument("--gpus", default=None)
     # debug
     parser.add_argument("--debug", action="store_true", default=False, help="debug")
     args = parser.parse_args()
