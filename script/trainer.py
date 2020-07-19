@@ -735,7 +735,7 @@ def main(args: ArgumentParser):
 
     # model arch
     if "efficientnet" in args.model_arch:
-        print("using efficientnet")
+        print(f"using {args.model_arch} from EfficientNet")
         model = EfficientNet.from_pretrained(
             args.model_arch, advprop=False, in_channels=3, num_classes=len(args.labels))
         # model._fc = nn.Linear(in_features=1408, out_features=4, bias=True)
@@ -748,7 +748,7 @@ def main(args: ArgumentParser):
     checkpoint_exists: bool = os.path.exists(args.checkpoint_path)
     if args.use_lightning and args.export_to_lightning and checkpoint_exists:
         # export weights not trained by lightning before
-        print(f"loading checkpoint from: {args.checkpoint_path}")
+        print(f"export weights to lightning from loaded checkpoint from: {args.checkpoint_path}")
         checkpoint = torch.load(args.checkpoint_path)
         model.load_state_dict(checkpoint["model_state_dict"])
 
@@ -761,6 +761,9 @@ def main(args: ArgumentParser):
 
     checkpoint: Optional = None
     checkpoint_exists: bool = os.path.exists(args.checkpoint_path)
+    if args.load_weights_only and not args.load_checkpoint:
+        raise ValueError(f"Need to load checkpoint to load weights into models")
+
     if args.load_checkpoint and checkpoint_exists:
         print(f"loading checkpoint from: {args.checkpoint_path}")
         checkpoint = torch.load(args.checkpoint_path)
@@ -769,7 +772,7 @@ def main(args: ArgumentParser):
         else:
             model.load_state_dict(checkpoint["model_state_dict"])
 
-    elif args.load_checkpoint:
+    elif args.load_checkpoint and not checkpoint_exists:
         raise ValueError(f"checkpoint does not exist: {args.checkpoint_path}")
 
     if args.use_lightning and not args.inference_only:
