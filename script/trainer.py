@@ -547,6 +547,15 @@ def do_inference(args: ArgumentParser, model: nn.Module, eval_metric_func: Optio
             if args.inference_proba and eval_metric_func is not None:
                 score = do_evaluate(args, df, eval_metric_func=eval_metric_func)
                 print(f"Inference TTA: {i:02d} / {len(test_configs.tta_transforms):02d} rounds: {score:.04f}")
+                file_path = f"proba__arch_{args.model_arch}__metric_{score:.4f}__tta_no{i:02d}.parquet"
+
+            if args.inference_proba:
+                if eval_metric_func is None:
+                    file_path = f"proba__arch_{args.model_arch}__metric_none__tta_no{i:02d}.parquet"
+
+                file_path = os.path.join(args.cached_dir, file_path)
+                df.to_parquet(file_path)
+                print(f"Save Inferred Prediction {df.shape} to {file_path}")
 
         df = pd.concat(collect, ).groupby(level=args.shared_indices).mean()
         print(f"\nFinish TTA: {df.shape}, Stats:\n{df.describe()}")
@@ -729,11 +738,19 @@ def main(args: ArgumentParser):
         print("using efficientnet")
         model = EfficientNet.from_pretrained(
             args.model_arch, advprop=False, in_channels=3, num_classes=len(args.labels))
-        model._fc = nn.Linear(in_features=1408, out_features=4, bias=True)
+        # model._fc = nn.Linear(in_features=1408, out_features=4, bias=True)
     else:
         # "seresnet34", resnext50_32x4d"
         model = timm.create_model(
             args.model_arch, pretrained=True, num_classes=len(args.labels), in_chans=3, drop_rate=.5)
+
+    checkpoint: Optional = None
+    checkpoint_exists: bool = os.path.exists(args.checkpoint_path)
+    if args.use_lightning and args.export_to_lightning and checkpoint_exists:
+        # export weights not trained by lightning before
+        print(f"loading checkpoint from: {args.checkpoint_path}")
+        checkpoint = torch.load(args.checkpoint_path)
+        model.load_state_dict(checkpoint["model_state_dict"])
 
     # use lightning for training or inference
     if args.use_lightning:
@@ -747,7 +764,6 @@ def main(args: ArgumentParser):
     if args.load_checkpoint and checkpoint_exists:
         print(f"loading checkpoint from: {args.checkpoint_path}")
         checkpoint = torch.load(args.checkpoint_path)
-
         if args.use_lightning:
             model.load_state_dict(checkpoint["state_dict"])
         else:
@@ -797,21 +813,6 @@ def main(args: ArgumentParser):
         df = generate_submission(args, submission)
         df.to_csv("submission.csv", index=True)
 
-    elif args.inference_proba:
-        score: float = 0.
-        if eval_metric_func is not None:
-            score = do_evaluate(args, submission, eval_metric_func=eval_metric_func)
-
-        if args.tta:
-            print(f"Inference TTA: {score:.04f}")
-            file_path = os.path.join(args.cached_dir, f"proba__arch_{args.model_arch}__metric_{score:.4f}__tta.parquet")
-        else:
-            print(f"Inference: {score:.04f}")
-            file_path = os.path.join(args.cached_dir, f"proba__arch_{args.model_arch}__metric_{score:.4f}.parquet")
-
-        submission.to_parquet(file_path)
-        print(f"Save Inferred Prediction: {score:.04f} to {file_path}")
-
     return
 
 
@@ -846,6 +847,7 @@ if "__main__" == __name__:
     parser.add_argument("--checkpoint-path", type=str, default=None, help="model checkpoint")
     parser.add_argument("--load-checkpoint", action="store_true", default=False, help="load checkpoint")
     parser.add_argument("--load-weights-only", action="store_true", default=False, help="load weights only")
+    parser.add_argument("--export-to-lightning", action="store_true", default=False, help="export weights to lightning")
     # configs
     parser.add_argument("--train-configs", type=str, default=default_train_configs, help="configs for training")
     parser.add_argument("--valid-configs", type=str, default=default_valid_configs, help="configs for validation")
