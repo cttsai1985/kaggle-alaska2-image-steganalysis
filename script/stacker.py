@@ -12,7 +12,7 @@ from catboost import CatBoostClassifier
 from lightgbm import LGBMClassifier
 from optuna.pruners import SuccessiveHalvingPruner
 from optuna.samplers import TPESampler
-from sklearn.ensemble import RandomForestClassifier, ExtraTreesClassifier
+from sklearn.ensemble import RandomForestClassifier, ExtraTreesClassifier, BaggingClassifier
 from sklearn.ensemble import StackingClassifier
 from sklearn.model_selection import StratifiedKFold
 from xgboost import XGBClassifier
@@ -321,6 +321,16 @@ def main(args: ArgumentParser):
             solver.search(data)
             params = solver.best_params_
 
+        if args.bagging:
+            #
+            params_bagging = {
+                "base_estimator": estimator(**params), "n_estimators": 25, "max_samples": .95, "random_state": None,
+            }
+            generate_stacked_submission(
+                args, stacker=BaggingClassifier, params=params_bagging, eval_metric_func=eval_metric_func, data=data,
+                train_on_validation=False)
+            return
+
         generate_stacked_submission(
             args, stacker=estimator, params=params, eval_metric_func=eval_metric_func, data=data,
             train_on_validation=False)
@@ -332,6 +342,7 @@ def main(args: ArgumentParser):
             generate_stacked_submission(
                 args, stacker=estimator, params=params, eval_metric_func=eval_metric_func, data=data,
                 train_on_validation=False, use_update_model=args.use_update_model)
+
 
         return
 
@@ -367,6 +378,8 @@ if "__main__" == __name__:
     #
     parser.add_argument(
         "--proba-filename-stem", type=str, default=None, help="filename for the generated proba file")
+    parser.add_argument(
+        "--bagging", action="store_true", default=False, help="bagging on models")
     parser.add_argument(
         "--generate-proba-file", action="store_true", default=False, help="generate a new proba file from configs")
     parser.add_argument(
