@@ -1,0 +1,14 @@
+# EfficientNet
+# https://github.com/lukemelas/EfficientNet-PyTorch
+efficientnet_pytorch
+# https://github.com/rwightman/pytorch-image-models
+timm
+# https://github.com/rwightman/gen-efficientnet-pytorch
+geffnet
+
+# torch
+catalyst
+
+# https://github.com/BloodAxe/pytorch-toolbelt
+pytorch_toolbelt
+

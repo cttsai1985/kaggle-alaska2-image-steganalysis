@@ -1,0 +1,46 @@
+#make
+#cmake
+
+#cuda
+cupy
+
+#numba
+numba
+
+#dask
+dask
+distributed
+
+#
+pytables
+pyarrow
+scikit-learn
+pandas
+
+# img
+imagehash
+opencv
+imgaug
+albumentations
+
+# nlp
+# spacy
+# transformers
+
+# optimize
+optuna
+
+# manage
+mlflow
+
+#community
+pytorch-lightning
+ignite
+skorch
+captum
+# torchtext
+torchvision
+
+#nvidia 
+nvidia-apex
+
