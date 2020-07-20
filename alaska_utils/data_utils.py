@@ -85,6 +85,7 @@ def split_train_test_data(
 def split_train_valid_data(
         args: ArgumentParser, splitter: BaseCrossValidator, data: Optional[pd.DataFrame] = None,
         nr_fold: int = 1) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """Split Data into Train and Valid"""
     label = args.col_enum_class
     image, kind = args.shared_indices
     image_quality = args.col_image_quality
@@ -112,6 +113,7 @@ def split_train_valid_data(
 
 
 def generate_submission(args: ArgumentParser, submission: pd.DataFrame) -> pd.DataFrame:
+    """Take Test Predictions for 4 classes to Generate Submission File"""
     image, kind = args.shared_indices
     df = submission.reset_index()[[image, args.labels[0]]]
     df.columns = ["Id", "Label"]
