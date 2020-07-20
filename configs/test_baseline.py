@@ -1,6 +1,6 @@
 configs = {
     "num_workers": 8,
-    "batch_size": 4,
+    "batch_size": 12,
 
     "augmentations": [
 #        {"transform": "HorizontalFlip", "params": {"p": .5}, },

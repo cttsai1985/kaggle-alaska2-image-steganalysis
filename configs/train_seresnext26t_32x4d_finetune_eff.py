@@ -1,10 +1,9 @@
 configs = {
     "num_workers": 8,
-    "batch_size": 12,  # efficientnet-b2
+    "batch_size": 16,  # efficientnet-b2
 
     "n_epochs": 25,
-    # "lr": 4e-05,
-    "lr": 4e-06,
+    "lr": 4e-05,
 
     "accumulate_grad_batches": 2,
     "lr_scheduler": "ReduceLROnPlateau",
@@ -16,7 +15,8 @@ configs = {
         {"transform": "RandomRotate90", "params": {"always_apply": False, "p": .5}, },
         {"transform": "InvertImg", "params": {"p": .5}, },
         {"transform": "Resize", "params": {"height": 512, "width": 512, "always_apply": True, "p": 1.}, },
-        {"transform": "Normalize", "params": {"always_apply": True, "p": 1.}, },
+        {"transform": "ToFloat", "params": {"max_value": 255, "always_apply": True, "p": 1.}, },
+        # {"transform": "Normalize", "params": {"always_apply": True, "p": 1.}, },
         {"transform": "ToTensorV2", "params": {"always_apply": True, "p": 1.}, },
     ],
 }
