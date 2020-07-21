@@ -18,6 +18,7 @@ weights = [2, 1]
 
 ### Data Description
  Rather than limiting the data source, these images have been acquired with as many as 50 different cameras (from smartphone to full-format high end) and processed in different fashions. This dataset contains a large number of unaltered images, called the "Cover" image, as well as corresponding examples in which information has been hidden using one of three steganography algorithms (`JMiPOD`, `JUNIWARD`, `UERD`). The goal of the competition is to determine which of the images in the test set (Test/) have hidden messages embedded.
+ 
     Cover/ contains 75k unaltered images meant for use in training.
     JMiPOD/ contains 75k examples of the JMiPOD algorithm applied to the cover images.
     JUNIWARD/contains 75k examples of the JUNIWARD algorithm applied to the cover images.
@@ -28,5 +29,7 @@ weights = [2, 1]
 ### Solution
 
 The solution code provide: `trainer` and `stacker` to generate accurate predictions. It leverage the ensemble and stacking classifier using prediction from the modern deep learning model `efficinetnet` and `seresnext`.
+
 `trainer`: training deep learning model with the popular architectures and pretrained weights.
+
 `stacker`: to generate submissions using the prediction from `trainer`.
