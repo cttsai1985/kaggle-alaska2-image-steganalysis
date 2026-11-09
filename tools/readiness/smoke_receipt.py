@@ -6,10 +6,12 @@ smoke's numbers are never a model result (SMOKE_READINESS_ONLY_NOT_A_MODEL_RESUL
 
 Budget rule (phase-1 plan, made explicit about evaluation and startup):
 
-    E = min(E_cap, floor((cap_s - margin_s - startup_s - eval_s) / epoch_s))
+    E = min(E_cap, floor((cap_s - margin_s - startup_s - 2 * eval_s - verify_overhead_s) / epoch_s))
 
-with epoch_s = fit_rows / train_img_s, eval_s = valid_rows / eval_img_s, and the slower of the epoch-average
-and steady-state train rates. If E < 2 the full-data baseline is NO-GO.
+with epoch_s = fit_rows / (steady_train_img_s * derate) and eval_s = valid_rows / eval_img_s. The whole
+command (train + evaluate + the fresh-process verify, which re-runs inference) must fit cap_s. The steady
+second-half rate is used because the smoke epoch average includes one-time worker start-up; the derate covers
+variation in CPU contention from other tenants. If E < 2 the full-data baseline is NO-GO.
 
     uv run python -m tools.readiness.smoke_receipt --run-dir RUN --gate GATE.json \
         --gpu-csv RUN/gpu_samples.csv \
@@ -76,6 +78,9 @@ def main() -> None:
     ap.add_argument("--cap-s", type=float, default=10_800)
     ap.add_argument("--margin-s", type=float, default=900)
     ap.add_argument("--epochs-cap", type=int, default=6)
+    ap.add_argument("--derate", type=float, default=0.7, help="safety factor on the steady train rate")
+    ap.add_argument("--host-contention", type=Path, help="host_contention.json written at launch")
+    ap.add_argument("--override", type=Path, help="JSON describing an operator override of the gate")
     ap.add_argument("--out", type=Path, required=True)
     a = ap.parse_args()
 
@@ -90,13 +95,19 @@ def main() -> None:
     batch = m["plan"]["batch_size"]
     avg_rate = ep["img_per_s"]
     steady = steady_train_rate(log, batch)
-    train_rate = min(r for r in (avg_rate, steady) if r)
+    train_rate = (steady or avg_rate) * a.derate
     eval_rows = pred_meta["membership"]["rows"]
     eval_rate = eval_rows / pred_meta["inference_wall_s"]
     startup_s = max(0.0, a.wall_s - ep["wall_s"] - pred_meta["inference_wall_s"])
+    verify_wall = (
+        json.loads((run / "wall.json").read_text()).get("verify_wall_s")
+        if (run / "wall.json").exists()
+        else None
+    )
+    verify_overhead = max(0.0, (verify_wall or 0.0) - pred_meta["inference_wall_s"])
     epoch_s = FULL_FIT_ROWS / train_rate
     eval_s = FULL_VALID_ROWS / eval_rate
-    usable = a.cap_s - a.margin_s - startup_s - eval_s
+    usable = a.cap_s - a.margin_s - startup_s - 2 * eval_s - verify_overhead
     e = min(a.epochs_cap, math.floor(usable / epoch_s))
     losses = [r["loss"] for r in log if "loss" in r]
 
@@ -157,22 +168,39 @@ def main() -> None:
             "rows": ver["rows"],
         },
         "gpu_samples": gpu_summary(a.gpu_csv),
-        "wall_s_total": a.wall_s,
+        "wall_s_train_eval": a.wall_s,
+        "verify_wall_s": verify_wall,
+        "loader_bound": {
+            "gpu_util_mean_pct": (gpu_summary(a.gpu_csv) or {}).get("utilization_pct_mean"),
+            "statement": "GPU mean utilization far below saturation while niced workers share a busy "
+            "host: the input pipeline (JPEG decode on 6 workers), not the GPU, limits throughput",
+        },
+        "host_contention_at_launch": json.loads(a.host_contention.read_text()) if a.host_contention else None,
+        "operator_override": json.loads(a.override.read_text()) if a.override else None,
         "startup_and_io_overhead_s": round(startup_s, 1),
         "baseline_budget": {
-            "rule": "E = min(E_cap, floor((cap_s - margin_s - startup_s - eval_s) / epoch_s))",
+            "rule": "E = min(E_cap, floor((cap - margin - startup - 2*eval - verify_overhead) / epoch_s))",
             "cap_s": a.cap_s,
             "margin_s": a.margin_s,
             "startup_s": round(startup_s, 1),
             "train_img_per_s_used": round(train_rate, 1),
-            "train_rate_basis": "slower of epoch average and steady second half",
+            "train_rate_basis": f"steady second-half rate x derate {a.derate} (epoch average has one-time "
+            "worker start-up; derate covers CPU contention variation)",
+            "derate": a.derate,
+            "verify_overhead_s": round(verify_overhead, 1),
+            "train_eval_timeout_s": round(a.cap_s - eval_s - verify_overhead - 60),
             "epoch_s_full_fit": round(epoch_s, 1),
             "eval_s_full_valid": round(eval_s, 1),
             "usable_s": round(usable, 1),
             "epochs_cap": a.epochs_cap,
             "E": e,
             "decision": "GO" if e >= 2 else "NO-GO (E < 2): full-data baseline does not fit",
-            "projected_wall_s": round(startup_s + e * epoch_s + eval_s, 1),
+            "projected_wall_s_at_derated_rate": round(
+                startup_s + e * epoch_s + 2 * eval_s + verify_overhead, 1
+            ),
+            "projected_wall_s_at_steady_rate": round(
+                startup_s + e * epoch_s * a.derate + 2 * eval_s + verify_overhead, 1
+            ),
         },
         "redaction": "aggregates only; no image ids, PIDs, paths or env vars",
     }

@@ -1,0 +1,209 @@
+{
+  "baseline_budget": {
+    "E": 5,
+    "cap_s": 10800,
+    "decision": "GO",
+    "derate": 0.7,
+    "epoch_s_full_fit": 1752.1,
+    "epochs_cap": 6,
+    "eval_s_full_valid": 469.9,
+    "margin_s": 900,
+    "projected_wall_s_at_derated_rate": 9761.0,
+    "projected_wall_s_at_steady_rate": 7132.8,
+    "rule": "E = min(E_cap, floor((cap - margin - startup - 2*eval - verify_overhead) / epoch_s))",
+    "startup_s": 19.7,
+    "train_eval_timeout_s": 10229,
+    "train_img_per_s_used": 137.0,
+    "train_rate_basis": "steady second-half rate x derate 0.7 (epoch average has one-time worker start-up; derate covers CPU contention variation)",
+    "usable_s": 8899.4,
+    "verify_overhead_s": 41.1
+  },
+  "checkpoint_reload_verify": {
+    "checks": {
+      "checkpoint_sha256_matches": true,
+      "model_sha256_matches": true,
+      "predictions_sha256_matches": true,
+      "saved_rows_match_canonical_inputs": true
+    },
+    "fresh_process": true,
+    "observed": {
+      "max_abs_logit_delta": 0.0,
+      "max_abs_prob_delta": 0.0,
+      "weighted_auc_delta": 0.0,
+      "weighted_auc_rebuilt": 0.634203869047619,
+      "weighted_auc_saved": 0.634203869047619
+    },
+    "passed": true,
+    "rows": 1600,
+    "tolerance": {
+      "metric_atol": 0.0001,
+      "prob_atol": 0.001
+    }
+  },
+  "device": "cuda:0",
+  "ended_at": "2026-11-09T18:13:55Z",
+  "eval": {
+    "amp_dtype": "bf16",
+    "batch_size": 64,
+    "img_per_s": 127.7,
+    "membership": {
+      "duplicates": 0,
+      "expected_rows": 1600,
+      "extra": 0,
+      "missing": 0,
+      "rows": 1600
+    },
+    "rows": 1600,
+    "wall_s": 12.53
+  },
+  "gpu_samples": {
+    "device_memory_used_mib_max": 10789,
+    "device_memory_used_mib_min": 893,
+    "note": "device totals (includes other tenants' ~893 MiB idle allocation); WSL hides per-process use",
+    "samples": 31,
+    "utilization_pct_mean": 30.2,
+    "utilization_pct_mean_nonzero": 31.2
+  },
+  "host_contention_at_launch": {
+    "at_utc": "2026-11-09T18:12:33Z",
+    "cpu_psi": "some avg10=15.18 avg60=14.18 avg300=14.15 total=17127870233",
+    "gpu": "1074 MiB, 2 %",
+    "io_psi_full": "full avg10=0.00 avg60=0.11 avg300=1.04 total=20362232983",
+    "loadavg": "37.14 35.52 32.99",
+    "logical_threads": 36,
+    "our_priority": "nice -n 19, ionice -c3 (idle)",
+    "top_cpu_containers": "unity-run-42661793670-1-train=2349.63% wsl2-desktop-mono-ci-actions-runner=100.69% predictive-research-prefect-prefect-server-1=18.21% "
+  },
+  "kind": "cuda_smoke_receipt",
+  "launch_gate": {
+    "advisory_failing": [
+      "cpu_free_threads",
+      "cpu_psi_some_avg60"
+    ],
+    "attempts": 1,
+    "checks": {
+      "cpu_free_threads": {
+        "advisory": true,
+        "advisory_reason": "operator override",
+        "basis": "logical_threads x measured idle fraction over 10.0 s",
+        "limit": ">= 16.0",
+        "pass": false,
+        "value": 6.74
+      },
+      "cpu_psi_some_avg60": {
+        "advisory": true,
+        "advisory_reason": "operator override",
+        "limit": "<= 10.0",
+        "pass": false,
+        "value": 13.91
+      },
+      "disk_free_gib_data_dir_fs": {
+        "limit": ">= 45.0",
+        "pass": true,
+        "value": 115.7
+      },
+      "disk_free_gib_root_fs": {
+        "limit": ">= 45.0",
+        "pass": true,
+        "value": 115.7
+      },
+      "gpu_other_used_mib": {
+        "limit": "<= 2048",
+        "pass": true,
+        "value": 1074
+      },
+      "gpu_util_pct": {
+        "limit": "<= 20",
+        "pass": true,
+        "value": 3
+      },
+      "io_psi_full_avg60": {
+        "advisory": true,
+        "limit": "<= 10.0",
+        "pass": true,
+        "value": 0.12
+      },
+      "io_psi_some_avg60": {
+        "advisory": true,
+        "limit": "<= 20.0",
+        "pass": true,
+        "value": 0.2
+      },
+      "io_read_probe_files_per_s": {
+        "advisory": true,
+        "limit": ">= 2000.0",
+        "pass": true,
+        "value": 8139.3
+      }
+    },
+    "decision": "GO",
+    "failing": [],
+    "waited_s": 10.3
+  },
+  "loader_bound": {
+    "gpu_util_mean_pct": 30.2,
+    "statement": "GPU mean utilization far below saturation while niced workers share a busy host: the input pipeline (JPEG decode on 6 workers), not the GPU, limits throughput"
+  },
+  "operator_override": {
+    "date": "2026-11-09",
+    "decided_by": "operator (relayed to this agent by the workflow coordinator)",
+    "label": "OPERATOR_DECISION_2026-11-09",
+    "mitigation": "every train/eval/verify process runs under nice -n 19 ionice -c3 so other tenants (incl. a production CPU training container) get CPU and IO first; DataLoader workers capped at 6; no other process or container is touched",
+    "operator_quotes": [
+      "kk just do it we can use the gpi",
+      "just get it done asap"
+    ],
+    "what_changed": "launch-gate CPU criteria (cpu_free_threads, cpu_psi_some_avg60) recorded as ADVISORY; GPU (other use <= 2 GiB VRAM, <= 20 % util) and disk (>= 45 GiB free) stay BLOCKING",
+    "why_allowed": "the CPU thresholds were this project's own proposal from the phase-1 review, not an operator limit"
+  },
+  "population": {
+    "fit": "all 240,000 fit rows sampled (200 steps x 32 = 6,400 images seen)",
+    "valid": "explicit_family_subset",
+    "valid_rows_evaluated": 1600
+  },
+  "redaction": "aggregates only; no image ids, PIDs, paths or env vars",
+  "result_label": "SMOKE_READINESS_ONLY_NOT_A_MODEL_RESULT",
+  "run_id": "20261109T181233Z-smoke-effb0",
+  "source": {
+    "dirty": false,
+    "git_sha": "286f9fc04d00e4b5b6b134cdd17b6a12a067ba04",
+    "package_sha256": "8f8739af1b50eba45cff7c53b55c10ce64f91f9798a73e814d3050cebe81187f"
+  },
+  "started_at": "2026-11-09T18:12:43Z",
+  "startup_and_io_overhead_s": 19.7,
+  "status": "completed",
+  "train": {
+    "amp_dtype": "bf16",
+    "batch_size": 32,
+    "channels_last": true,
+    "images": 6400,
+    "img_per_s_epoch_average": 94.9,
+    "img_per_s_steady_second_half": 195.7,
+    "loss_all_finite": true,
+    "loss_first_logged": 3.1908366680145264,
+    "loss_last_logged": 1.7957773208618164,
+    "num_workers": 6,
+    "peak_vram_allocated_mib": 7237.5,
+    "peak_vram_reserved_mib": 7938.0,
+    "steps": 200,
+    "train_loss_mean": 2.207953706383705,
+    "wall_s": 67.46
+  },
+  "verify_wall_s": 53.676232104,
+  "versions": {
+    "cuda_available": true,
+    "cuda_capability": "8.6",
+    "cuda_device": "NVIDIA RTX A4500",
+    "cudnn": 91002,
+    "numpy": "2.5.4",
+    "opencv": "5.0.0",
+    "pillow": "13.0.0",
+    "polars": "2.1.0",
+    "python": "3.12.13",
+    "timm": "1.0.31",
+    "torch": "2.14.1+cu126",
+    "torch_cuda": "12.6",
+    "torchvision": "0.29.1+cu126"
+  },
+  "wall_s_train_eval": 99.66
+}

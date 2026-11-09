@@ -68,8 +68,10 @@ def main() -> None:
         },
         "budget": {
             "wall_clock_cap_s": 10_800,
-            "enforcement": "timeout --kill-after=60 10800 around train+evaluate; SIGTERM closes the manifest "
-            "as interrupted; verify runs after, in a fresh process",
+            "train_eval_timeout_s": b["train_eval_timeout_s"],
+            "enforcement": f"timeout --kill-after=60 {b['train_eval_timeout_s']} around train+evaluate "
+            "(cap minus the measured eval + verify time); SIGTERM closes the manifest as interrupted; "
+            "verify then runs in a fresh process, all under nice -n 19 ionice -c3",
             "derivation": b,
             "runs": "one run, fresh run_id, nohup + log in the run dir; no duplicate launches",
             "second_model": "only if an additional 2 h is available after the baseline wall time is measured",
@@ -117,6 +119,13 @@ def main() -> None:
             "no acquisition-domain generalization beyond this dataset",
         ],
         "smoke_receipt_run_id": smoke["run_id"],
+        "launch_conditions": {
+            "operator_override": smoke.get("operator_override"),
+            "host_contention_at_smoke_launch": smoke.get("host_contention_at_launch"),
+            "baseline_launch_contention": "recorded at launch in the run dir (host_contention.json) and in "
+            "docs/phase2-baseline.md",
+            "throughput_limit": smoke.get("loader_bound"),
+        },
     }
     a.out.write_text(json.dumps(spec, indent=2, sort_keys=True) + "\n")
     print(json.dumps({"E": b["E"], "config_sha256": spec["config_sha256_with_overrides"]}, indent=2))
