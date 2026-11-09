@@ -1,0 +1,69 @@
+{
+  "config_sha256": "1b88eac7211621c87ef77de71af945aab04df467e9db266dd9dc0c1d705a2654",
+  "decode_sample": {
+    "dtype": "torch.float32",
+    "finite": true,
+    "images": 64,
+    "mean": 0.0019,
+    "std": 1.0205,
+    "tensor_shape": [
+      3,
+      512,
+      512
+    ]
+  },
+  "family_separation": {
+    "content_groups_crossing_roles": 0,
+    "families_crossing_roles": 0
+  },
+  "identities": {
+    "holdout_fold": 1,
+    "input_manifest_sha256": "ab90caf00e5b21bde712cbb0fccd9aa5a6a1d41dff743934f186ae0806f5c274",
+    "manifest_parquet_sha256": "5ea4ed4a243513931983b59b59636e0f1375d6cafa7df60d7b5e56d78352357b",
+    "population": "full_data_single_holdout",
+    "population_sha256": "95a76c39327b59cbcbe686ec557699a5a877891bcc22057a1837efaa6bb16a7d",
+    "split_folds_sha256": "7260e8bdb592cdd970d4cddace4321e68e8e1c81a085ab1ac7b223ca627b8d02"
+  },
+  "image_size_checked": 512,
+  "kind": "validate",
+  "population_audit": {
+    "fit": {
+      "by_kind": {
+        "Cover": 60000,
+        "JMiPOD": 60000,
+        "JUNIWARD": 60000,
+        "UERD": 60000
+      },
+      "by_quality": {
+        "75": 80000,
+        "90": 80000,
+        "95": 80000
+      },
+      "complete_families": 60000,
+      "families": 60000,
+      "rows": 240000
+    },
+    "valid": {
+      "by_kind": {
+        "Cover": 15000,
+        "JMiPOD": 15000,
+        "JUNIWARD": 15000,
+        "UERD": 15000
+      },
+      "by_quality": {
+        "75": 20000,
+        "90": 20000,
+        "95": 20000
+      },
+      "complete_families": 15000,
+      "families": 15000,
+      "rows": 60000
+    }
+  },
+  "purpose": "baseline",
+  "rehash_sample": {
+    "files_rehashed": 2000,
+    "mismatched": 0
+  },
+  "test_rows": 5000
+}

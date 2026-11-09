@@ -1,0 +1,13 @@
+# CUDA smoke (<= 15 min wall): readiness only, never a model result.
+extends = "baseline_effb0_fold1.toml"
+purpose = "smoke"
+name = "smoke_effb0"
+
+[split]
+max_valid_families = 400  # 1,600 holdout rows (explicit subset; labeled)
+
+[train]
+epochs = 1
+max_steps_per_epoch = 200
+warmup_steps = 50
+log_every = 20

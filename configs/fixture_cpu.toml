@@ -1,0 +1,35 @@
+# Tiny synthetic CPU fixture for tests and walkthroughs: FIXTURE_NOT_A_MODEL_RESULT.
+extends = "baseline_effb0_fold1.toml"
+purpose = "fixture"
+name = "fixture_cpu"
+
+[data]
+root = "UNSET-use---set-data.root"
+expected_manifest_sha256 = ""
+expected_folds_sha256 = ""
+image_size = 64
+
+[model]
+pretrained = false
+
+[train]
+device = "cpu"
+epochs = 2
+batch_size = 8
+num_workers = 0
+pin_memory = false
+persistent_workers = false
+amp_dtype = "none"
+channels_last = false
+lr = 1e-3
+warmup_steps = 2
+log_every = 1
+cpu_threads = 2
+
+[eval]
+batch_size = 16
+amp_dtype = "none"
+
+[verify]
+prob_atol = 1e-6
+metric_atol = 1e-9

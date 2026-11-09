@@ -1,0 +1,40 @@
+{
+  "captured_at_utc": "2026-11-09T17:14:25Z",
+  "commands": {
+    "cpu": "uv run pytest -q -m \"not cuda\"",
+    "cuda_check": "uv run pytest -q -m cuda",
+    "format": "uv run ruff format --check src tests tools",
+    "lint": "uv run ruff check src tests tools"
+  },
+  "fixture_cli_run": {
+    "note": "uv run python -m alaska2 train --config configs/fixture_cpu.toml (2 epochs, 64 fit rows, 16 holdout rows, CPU) then verify",
+    "observed_note": "final config; an earlier run before the drop_rate/label_smoothing change observed max_abs_prob_delta 1.69e-07 (evaluate in the 2-thread training process vs verify in a fresh process), also within 1e-6",
+    "verify_observed": {
+      "max_abs_logit_delta": 0.0,
+      "max_abs_prob_delta": 0.0,
+      "weighted_auc_delta": 0.0
+    },
+    "verify_passed": true,
+    "verify_tolerance": {
+      "metric_atol": 1e-09,
+      "prob_atol": 1e-06
+    },
+    "wall_s_train_plus_evaluate": 11.36
+  },
+  "kind": "cpu_contract_tests",
+  "label": "FIXTURE_NOT_A_MODEL_RESULT (synthetic 64x64 JPEGs; plumbing only)",
+  "results": {
+    "cpu": "78 passed, 1 deselected in 65.40s (0:01:05)",
+    "cuda_check": "1 passed, 78 deselected in 16.89s",
+    "format": "28 files already formatted",
+    "lint": "All checks passed!"
+  },
+  "resume_drill": "tests/test_e2e_cpu.py::test_interrupted_run_resumes_to_identical_weights: fault injected after epoch 1 -> status interrupted (manifest kept) -> resume -> model_sha256 equal to the uninterrupted 2-epoch run (CPU, workers 0). Interrupted-training recovery only; stage/artifact-delivery recovery is not tested here.",
+  "tests_per_file": {
+    "tests/test_contracts.py": 23,
+    "tests/test_cuda.py": 1,
+    "tests/test_e2e_cpu.py": 12,
+    "tests/test_metrics.py": 15,
+    "tests/test_readiness.py (phase 1)": 28
+  }
+}
