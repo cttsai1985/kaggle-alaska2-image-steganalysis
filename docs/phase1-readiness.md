@@ -2,8 +2,10 @@
 
 Issue: #2 (parent #1). Original baseline: `e00f0b8` (unchanged). No training was run in this phase.
 
-**Verdict: GO for the phase-2 CUDA smoke (≤ 15 min), then the bounded baseline (≤ 3 h)**, on the conditions in the
-resource plan below. No blocker for GPU or data access was found.
+**Verdict: conditional.** Data, GPU access and the split are ready. **Launch is NO-GO until the host-occupancy gate
+(section 7) passes on a fresh reading.** The last gate reading (2026-11-09T16:45:07Z) was NO-GO on CPU and IO load
+from other host tenants. GPU and disk passed. The phase-2 CUDA smoke (≤ 15 min) and the bounded baseline (≤ 3 h)
+each start only after their own fresh gate returns GO.
 
 All numbers below are quoted from the committed JSON under `evidence/phase1/`. Images, per-file rows, the manifest
 parquet and the fold parquet stay outside Git under the data directory.
@@ -15,6 +17,7 @@ parquet and the fold parquet stay outside Git under the data directory.
 | `dataset_audit.json` | `uv run python -m tools.readiness.build_manifest` |
 | `split_audit.json` | `uv run python -m tools.readiness.legacy_split` |
 | `decode_probe.json` | `uv run --group probe python -m tools.readiness.decode_probe` |
+| `launch_gate.json` | `uv run python -m tools.readiness.launch_gate` (snapshot at review time; NO-GO) |
 
 ## 1. Host receipt (redacted)
 
@@ -56,8 +59,8 @@ flag, and never the token. File-list success shows access only. Download complet
 | Zip listing | 305,001 members: Cover/JMiPOD/JUNIWARD/UERD 75,000 each, Test 5,000, `sample_submission.csv`; 32,267,099,326 uncompressed bytes |
 | Extraction | `unzip -q -n`, exit 0, 2026-11-09T16:08:02Z → 16:17:29Z |
 | Extracted vs listing | 305,001 = 305,001 files, 32,267,099,326 = 32,267,099,326 bytes, 0 missing, 0 extra, 0 size mismatches → **exact match**; the zip was then deleted to preserve disk |
-| Manifest content hash | `ab90caf00e5b21bde712cbb0fccd9aa5a6a1d41dff743934f186ae0806f5c274` (sha256 over sorted `relpath\tsha256` lines, 305,000 image files) |
-| Quality CSV | `image_quality.csv` sha256 `c826e8f3177e2866184abf6df515ad51a9ac0f0ddf49edf0b48bbd60f21d31a8`, 305,000 rows, 0 duplicate `(image, kind)` keys |
+| Manifest content hash | `ab90caf00e5b21bde712cbb0fccd9aa5a6a1d41dff743934f186ae0806f5c274` (sha256 over sorted `relpath\tsha256` lines, 305,000 image files). Re-verified on review by `--reuse-manifest`, which now **rehashes every file**: 305,000 rehashed, 0 changed, same hash |
+| Quality CSV | `image_quality.csv` sha256 `c826e8f3177e2866184abf6df515ad51a9ac0f0ddf49edf0b48bbd60f21d31a8`, 305,000 rows, 0 duplicate `(image, kind)` keys; the split's quality join is enforced 1:1 (`validate="1:1"` plus an unchanged row count: 300,000 train rows in, 300,000 out) |
 | Sample submission | sha256 `e16c82f3…14be25`; columns `Id, Label`; 5,000 rows; 0 duplicate Ids; **Id set equals the 5,000 `Test/` file names** (0 missing either way); Label constant (1 unique value) |
 
 Membership is derived from the real files, not from a numeric range or README counts:
@@ -147,16 +150,18 @@ RAM.
 ## 7. Resource plan (GO/NO-GO)
 
 Standard practice: a fixed-budget, single-backbone baseline on a grouped holdout, smoke-tested on the GPU first,
-with the budget decided before fitting. We differ in one respect: the legacy fold 1 is the holdout, not 5-fold CV.
+with the budget decided before fitting, and launched only when the shared host is idle enough. We differ in one
+respect: the legacy fold 1 is the holdout, not 5-fold CV.
 That reproduces the original evaluation boundary within the 3 h budget. It is reported as a **single holdout, never
 as CV**. Risks the operator would care about: the GPU is shared with a production container; host CPU load is high
-(loadavg ~57 on 36 threads) and could starve the loader; GPU container startup latency varies (see section 1);
+(loadavg ~57 on 36 threads at the receipt) and would starve the loader, so the gate below blocks launch while it
+lasts; GPU container startup latency varies (see section 1);
 pretrained weights download from the Hugging Face hub needs network access.
 
 | Item | Fixed value |
 | --- | --- |
 | Assigned GPU | GPU 0, NVIDIA RTX A4500 (the only GPU); measured free VRAM 19,580 MiB at capture |
-| Launch gate (every GPU job) | `nvidia-smi`: other usage ≤ 2 GB and util ≤ 20 %, else wait (never stop other jobs); one job at a time |
+| Launch gate (every launch) | `tools.readiness.launch_gate`, run fresh **immediately before the smoke and again before the baseline**; exit 0 = GO, exit 3 = NO-GO. All must pass: GPU other usage ≤ 2,048 MiB and util ≤ 20 %; CPU free threads (logical threads − loadavg-1) ≥ 16 (the job needs ~14: 12 loader workers + main + pin thread); CPU PSI `some` avg60 ≤ 10 %; IO PSI `some` avg60 ≤ 20 % and `full` avg60 ≤ 10 %; free disk ≥ 40 GiB floor + 5 GiB run outputs on `/` and the data fs. Missing PSI counts as failing. On NO-GO, wait (`--wait-max-s`, `--poll-s`) and never stop, renice or touch other jobs or containers. One job at a time. Thresholds are our proposal, not an operator ruling. |
 | VRAM cap | ≤ 16 GB of our usage; the smoke records peak allocated/reserved; halve batch if peak reserved > 14 GB |
 | Backbone | timm `efficientnet_b0`, ImageNet-pretrained (`efficientnet_b0.ra_in1k`), current timm API |
 | Head / target | 4-class softmax in legacy class order (Cover, JMiPOD, JUNIWARD, UERD); score = 1 − p(Cover), as in legacy `generate_submission` |
@@ -170,9 +175,24 @@ pretrained weights download from the Hugging Face hub needs network access.
 | Second model | only if it fits an additional 2 h after the baseline wall time is measured; otherwise deferred and reported as deferred |
 | Disk | 129.8 GiB free (floor 40 GB). Outputs go to `~/data/kaggle/alaska2-image-steganalysis/runs/<run_id>/`; b0 checkpoints are ~20 MB each |
 
-**GO** for the phase-2 smoke, provided the launch gate passes at launch. GPU, Docker GPU, Kaggle access, complete
-data, quality metadata and the reproducible legacy split are all verified. **Not yet measured:** GPU training
-throughput and peak VRAM (the smoke measures both), and the weighted-AUC implementation (verified in phase 2).
+**Gate state at review time: NO-GO** (`evidence/phase1/launch_gate.json`, two readings 75 s apart, ending
+2026-11-09T16:45:07Z, after our own rehash job had finished):
+
+| Criterion | Value | Limit | Pass |
+| --- | --- | --- | --- |
+| GPU other usage | 893 MiB | ≤ 2,048 MiB | yes |
+| GPU util | 2 % | ≤ 20 % | yes |
+| CPU free threads | 5.3 | ≥ 16 | **no** |
+| CPU PSI some avg60 | 10.05 % | ≤ 10 % | **no** |
+| IO PSI some avg60 | 19.3 % | ≤ 20 % | yes |
+| IO PSI full avg60 | 16.2 % | ≤ 10 % | **no** |
+| Free disk `/` (= data fs) | 122.4 GiB | ≥ 45 GiB | yes |
+
+This load is not ours: no job from this run was active during the readings. **Phase 2 waits for a GO** from a fresh
+gate run before the smoke, and again before the baseline, and records each gate JSON with that run. GPU, Docker GPU,
+Kaggle access, complete data, quality metadata and the reproducible legacy split are all verified. **Not yet
+measured:** GPU training throughput and peak VRAM (the smoke measures both), and the weighted-AUC implementation
+(verified in phase 2).
 
 ## Reproduce
 
@@ -180,11 +200,12 @@ throughput and peak VRAM (the smoke measures both), and the weighted-AUC impleme
 D=~/data/kaggle/alaska2-image-steganalysis
 uv run python -m tools.readiness.build_manifest --data-dir $D/raw/extracted \
   --quality-csv $D/quality/image_quality.csv --sample-submission $D/raw/extracted/sample_submission.csv \
-  --out-dir $D/manifest --audit-json evidence/phase1/dataset_audit.json
+  --out-dir $D/manifest --audit-json evidence/phase1/dataset_audit.json   # add --reuse-manifest to rehash-verify
 uv run python -m tools.readiness.legacy_split --manifest $D/manifest/files_manifest.parquet \
   --quality-csv $D/quality/image_quality.csv --out-dir $D/manifest --audit-json evidence/phase1/split_audit.json
 uv run python -m tools.readiness.host_receipt --data-dir $D --out evidence/phase1/host_receipt.json
 uv run --group probe python -m tools.readiness.decode_probe --data-dir $D/raw/extracted \
   --manifest $D/manifest/files_manifest.parquet --out evidence/phase1/decode_probe.json
+uv run python -m tools.readiness.launch_gate --data-dir $D --label smoke --out evidence/phase1/launch_gate.json
 uv run ruff check tools tests && uv run pytest -q
 ```

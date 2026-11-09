@@ -65,6 +65,27 @@ def inspect_file(args: tuple[str, str]) -> dict:
     return row
 
 
+def hash_file(args: tuple[str, str]) -> tuple[str, int, str]:
+    root, rel = args
+    data = Path(os.path.join(root, rel)).read_bytes()
+    return rel, len(data), hashlib.sha256(data).hexdigest()
+
+
+def changed_files(df: pl.DataFrame, root: Path, workers: int) -> list[str]:
+    """Rehash every file on disk; return relpaths whose size or sha256 differs from the manifest row.
+
+    A reused manifest may only attest dataset identity after the current bytes were read again.
+    """
+    args = [(str(root), r) for r in df["relpath"].to_list()]
+    if workers <= 1:
+        cur = list(map(hash_file, args))
+    else:
+        with ProcessPoolExecutor(max_workers=workers, mp_context=mp.get_context("forkserver")) as ex:
+            cur = list(ex.map(hash_file, args, chunksize=512))
+    expected = {r: (n, h) for r, n, h in df.select("relpath", "n_bytes", "sha256").iter_rows()}
+    return sorted(rel for rel, n, h in cur if expected[rel] != (n, h))
+
+
 def list_files(root: Path) -> list[str]:
     rels = []
     for kind in sorted(p.name for p in root.iterdir() if p.is_dir()):
@@ -212,12 +233,20 @@ def main() -> None:
 
     manifest_path = a.out_dir / "files_manifest.parquet"
     if a.reuse_manifest:
-        # Re-audit an existing manifest; the file listing must still match it exactly.
+        # Re-audit an existing manifest: the file listing must match it exactly, and every file is
+        # rehashed so a same-name replacement cannot inherit the cached hash and inspection results.
         df = pl.read_parquet(manifest_path).sort("relpath")
         if df["relpath"].to_list() != list_files(a.data_dir):
             raise SystemExit(
                 "existing manifest does not match the files on disk; rebuild without --reuse-manifest"
             )
+        changed = changed_files(df, a.data_dir, a.workers)
+        if changed:
+            raise SystemExit(
+                f"{len(changed)} file(s) changed content since the manifest was built "
+                f"(first: {changed[:3]}); rebuild without --reuse-manifest"
+            )
+        source = {"mode": "reused_manifest_rehash_verified", "files_rehashed": df.height, "changed": 0}
     else:
         rels = list_files(a.data_dir)
         root = str(a.data_dir)
@@ -226,6 +255,7 @@ def main() -> None:
         df = pl.DataFrame(rows, infer_schema_length=None).sort("relpath")
         a.out_dir.mkdir(parents=True, exist_ok=True)
         df.write_parquet(manifest_path)
+        source = {"mode": "built_from_files", "files_hashed": df.height}
     # Identity of the manifest content, independent of parquet encoding details
     content_hash = hashlib.sha256(
         "\n".join(f"{r}\t{s}" for r, s in df.select("relpath", "sha256").iter_rows()).encode()
@@ -234,6 +264,7 @@ def main() -> None:
     quality = pl.read_csv(a.quality_csv) if a.quality_csv and a.quality_csv.exists() else None
     result = audit(df, quality)
     result["manifest_content_sha256"] = content_hash
+    result["manifest_source"] = source
     result["quality_csv_sha256"] = (
         hashlib.sha256(a.quality_csv.read_bytes()).hexdigest() if quality is not None else None
     )

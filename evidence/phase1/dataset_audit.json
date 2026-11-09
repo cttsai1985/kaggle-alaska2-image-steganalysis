@@ -34,6 +34,11 @@
   "files_without_quality_row": 0,
   "join_rows_equal_files": true,
   "manifest_content_sha256": "ab90caf00e5b21bde712cbb0fccd9aa5a6a1d41dff743934f186ae0806f5c274",
+  "manifest_source": {
+    "changed": 0,
+    "files_rehashed": 305000,
+    "mode": "reused_manifest_rehash_verified"
+  },
   "n_files": 305000,
   "non_jpeg": 0,
   "open_errors": 0,

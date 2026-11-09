@@ -92,6 +92,24 @@ def row_level_leak_diagnostic(train: pl.DataFrame, seed: int = 0) -> dict:
     }
 
 
+def join_quality(manifest: pl.DataFrame, quality: pl.DataFrame) -> pl.DataFrame:
+    """Train manifest rows with their CSV quality; strictly one quality row per (image, kind).
+
+    Duplicate metadata keys would silently multiply image rows (and still pass the null and
+    family checks), so cardinality and row count are enforced before any fold is produced.
+    """
+    train = manifest.filter(pl.col("split") == "train")
+    try:
+        out = train.join(quality, on=["image", "kind"], how="left", validate="1:1")
+    except pl.exceptions.ComputeError as exc:
+        raise ValueError(f"quality join is not 1:1 on (image, kind): {exc}") from exc
+    if out.height != train.height:
+        raise ValueError(f"quality join changed row count: {train.height} -> {out.height}")
+    if out["quality"].is_null().any():
+        raise ValueError("quality missing for some train rows; legacy stratification cannot be reproduced")
+    return out
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--manifest", type=Path, required=True)
@@ -102,9 +120,10 @@ def main() -> None:
 
     m = pl.read_parquet(a.manifest)
     q = pl.read_csv(a.quality_csv)
-    train = m.filter(pl.col("split") == "train").join(q, on=["image", "kind"], how="left")
-    if train["quality"].is_null().any():
-        raise SystemExit("quality missing for some train rows; legacy stratification cannot be reproduced")
+    try:
+        train = join_quality(m, q)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
 
     folds = legacy_family_folds(train)
     a.out_dir.mkdir(parents=True, exist_ok=True)
@@ -118,6 +137,7 @@ def main() -> None:
         "groups argument ignored by StratifiedKFold; families expanded to all variants",
         "fold_assignment_content_sha256": folds_hash,
         "families": folds.height,
+        "quality_join": {"validate": "1:1", "train_rows": train.height},
         **audit_folds(train, folds),
         "content_linked_families": content_linked_families(train, folds),
         "row_level_diagnostic": row_level_leak_diagnostic(train),

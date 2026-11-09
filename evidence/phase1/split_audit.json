@@ -70,6 +70,10 @@
     }
   ],
   "policy": "legacy: sort by image, dedup to base image, StratifiedKFold(5, no shuffle) on quality; groups argument ignored by StratifiedKFold; families expanded to all variants",
+  "quality_join": {
+    "train_rows": 300000,
+    "validate": "1:1"
+  },
   "row_level_diagnostic": {
     "label": "DIAGNOSTIC_ONLY_row_level_split_not_an_evaluation",
     "split": "StratifiedKFold(n_splits=5, shuffle=True, random_state=0) on label, fold 1",

@@ -6,11 +6,23 @@ import polars as pl
 import pytest
 from PIL import Image
 
-from tools.readiness.build_manifest import audit, check_sample_submission, inspect_file
+from tools.readiness.build_manifest import (
+    audit,
+    changed_files,
+    check_sample_submission,
+    inspect_file,
+    list_files,
+)
 from tools.readiness.decode_probe import decode_pil, sample, timed
 from tools.readiness.host_receipt import _listing
 from tools.readiness.jpeg_quality import ZIGZAG, ijg_table, quality_from_table
-from tools.readiness.legacy_split import audit_folds, content_linked_families, legacy_family_folds
+from tools.readiness.launch_gate import Thresholds, evaluate, parse_psi
+from tools.readiness.legacy_split import (
+    audit_folds,
+    content_linked_families,
+    join_quality,
+    legacy_family_folds,
+)
 
 
 def test_ijg_table_known_values():
@@ -162,3 +174,85 @@ def test_kaggle_listing_parse_drops_token():
         "first_page_rows": 1,
         "more_pages": False,
     }
+
+
+def test_reuse_manifest_detects_same_path_replacement(tmp_path):
+    for kind in ("Cover", "UERD"):
+        (tmp_path / kind).mkdir()
+        for i in range(3):
+            Image.new("RGB", (16, 16), (i * 50, 20, 90)).save(
+                tmp_path / kind / f"{i:05d}.jpg", "JPEG", quality=90
+            )
+    df = pl.DataFrame([inspect_file((str(tmp_path), r)) for r in list_files(tmp_path)])
+    assert changed_files(df, tmp_path, workers=1) == []
+    # Same filename, different bytes (same size is not required to be caught, but test it anyway)
+    target = tmp_path / "UERD" / "00001.jpg"
+    old = target.read_bytes()
+    target.write_bytes(old[:-3] + bytes(b ^ 0xFF for b in old[-3:-2]) + old[-2:])
+    assert len(target.read_bytes()) == len(old)
+    assert changed_files(df, tmp_path, workers=1) == ["UERD/00001.jpg"]
+    Image.new("RGB", (16, 16), (1, 2, 3)).save(tmp_path / "Cover" / "00002.jpg", "JPEG", quality=75)
+    assert changed_files(df, tmp_path, workers=1) == ["Cover/00002.jpg", "UERD/00001.jpg"]
+
+
+def _manifest_and_quality(n_fam=25):
+    t = _fixture(n_fam)
+    return t.drop("quality").with_columns(split=pl.lit("train")), t.select("image", "kind", "quality")
+
+
+def test_quality_join_is_one_to_one():
+    m, q = _manifest_and_quality()
+    assert join_quality(m, q).height == m.height == 100
+
+
+def test_quality_join_rejects_duplicate_keys():
+    m, q = _manifest_and_quality()
+    with pytest.raises(ValueError, match="not 1:1"):
+        join_quality(m, pl.concat([q, q.head(1)]))  # one duplicate key would expand 100 rows to 101
+
+
+def test_quality_join_rejects_missing_quality():
+    m, q = _manifest_and_quality()
+    with pytest.raises(ValueError, match="quality missing"):
+        join_quality(m, q.slice(1))
+
+
+def _host(**kw):
+    r = {
+        "gpu": {"index": 0, "memory_used_mib": 890, "utilization_gpu_pct": 2},
+        "logical_threads": 36,
+        "loadavg_1": 8.0,
+        "cpu_psi": {"some_avg60": 2.0},
+        "io_psi": {"some_avg60": 1.0, "full_avg60": 0.5},
+        "free_gib": {"root_fs": 120.0, "data_dir_fs": 120.0},
+    }
+    r.update(kw)
+    return r
+
+
+def test_launch_gate_go_when_idle():
+    assert evaluate(_host(), Thresholds())["decision"] == "GO"
+
+
+@pytest.mark.parametrize(
+    ("override", "failing"),
+    [
+        ({"gpu": {"index": 0, "memory_used_mib": 4000, "utilization_gpu_pct": 2}}, "gpu_other_used_mib"),
+        ({"gpu": {"index": 0, "memory_used_mib": 890, "utilization_gpu_pct": 60}}, "gpu_util_pct"),
+        ({"gpu": None}, "gpu_visible"),
+        ({"loadavg_1": 57.6}, "cpu_free_threads"),  # phase-1 receipt reading
+        ({"cpu_psi": {"some_avg60": 30.8}}, "cpu_psi_some_avg60"),  # phase-1 receipt reading
+        ({"cpu_psi": {}}, "cpu_psi_some_avg60"),  # PSI unavailable -> cannot show low occupancy
+        ({"io_psi": {"some_avg60": 1.0, "full_avg60": 72.0}}, "io_psi_full_avg60"),
+        ({"free_gib": {"root_fs": 44.0, "data_dir_fs": 120.0}}, "disk_free_gib_root_fs"),
+    ],
+)
+def test_launch_gate_no_go_on_each_criterion(override, failing):
+    res = evaluate(_host(**override), Thresholds())
+    assert res["decision"] == "NO-GO" and res["failing"] == [failing]
+
+
+def test_parse_psi():
+    txt = "some avg10=1.47 avg60=8.18 avg300=19.17 total=1\nfull avg10=0.84 avg60=6.79 avg300=13.94 total=2\n"
+    assert parse_psi(txt) == {"some_avg60": 8.18, "full_avg60": 6.79}
+    assert parse_psi(None) == {}
