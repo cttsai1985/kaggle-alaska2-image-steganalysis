@@ -24,6 +24,7 @@ from alaska2.identity import provenance_diff, run_provenance, sha256_file
 from alaska2.inputs import prepare_inputs, seed_everything
 from alaska2.model import build_model, load_checkpoint, state_dict_sha256
 from alaska2.runtime import (
+    TERMINATION,
     autocast,
     make_loader,
     resolve_device,
@@ -107,8 +108,12 @@ def train(cfg: dict, run_dir: Path | None = None, resume: Path | None = None) ->
     try:
         _fit(cfg, inputs, identities, provenance, device, run_dir, manifest, ckpt)
     except BaseException as exc:  # keep failed / interrupted runs visible
-        manifest["status"] = "interrupted" if isinstance(exc, KeyboardInterrupt | FaultInjected) else "failed"
+        terminated = TERMINATION["signal"] is not None
+        stopped = isinstance(exc, KeyboardInterrupt | FaultInjected) or terminated
+        manifest["status"] = "interrupted" if stopped else "failed"
         manifest["error"] = f"{type(exc).__name__}: {exc}"
+        if terminated:
+            manifest["terminated_by_signal"] = TERMINATION["signal"]
         manifest["traceback_tail"] = traceback.format_exc().splitlines()[-6:]
         manifest["ended_at"] = utc_now()
         write_json(run_dir / "run_manifest.json", manifest)

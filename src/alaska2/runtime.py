@@ -17,6 +17,10 @@ from alaska2.data import EpochShuffleSampler, ImageDataset, worker_init
 
 AMP_DTYPES = {"bf16": torch.bfloat16, "fp16": torch.float16, "none": None}
 
+# Set by the CLI SIGTERM handler; a run that fails for any reason after SIGTERM was received was stopped
+# from outside (the wall-clock cap), so its manifest says interrupted, not failed.
+TERMINATION = {"signal": None}
+
 
 def utc_now() -> str:
     return dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")

@@ -156,8 +156,17 @@ class EpochShuffleSampler(Sampler):
 
 
 def worker_init(_: int) -> None:
-    """One decode thread per loader worker, as in the phase-1 probe."""
+    """One decode thread per loader worker, as in the phase-1 probe.
+
+    Workers ignore SIGTERM: ``timeout`` (the wall-clock cap) signals the whole process group, and a worker
+    dying first makes the parent raise "DataLoader worker killed", which hid the cap as status=failed. The
+    parent handles SIGTERM, closes the manifest as interrupted and shuts the workers down itself.
+    """
+    import signal
+
     import cv2
+
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
 
     cv2.setNumThreads(1)
     torch.set_num_threads(1)

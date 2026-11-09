@@ -145,6 +145,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 def _sigterm_as_interrupt(signum, frame):
     """``timeout`` (the wall-clock cap) sends SIGTERM; raise so the run manifest is closed as interrupted."""
+    from alaska2.runtime import TERMINATION
+
+    TERMINATION["signal"] = signum
     raise KeyboardInterrupt(f"signal {signum} (SIGTERM, e.g. the wall-clock cap)")
 
 

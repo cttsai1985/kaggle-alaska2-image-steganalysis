@@ -337,8 +337,11 @@ def test_resume_records_each_continuation_provenance(fixture_cfg, tmp_path):
     assert m["resumes"][0]["provenance"]["source"] == m["source"]
 
 
-def test_sigterm_wall_clock_cap_closes_manifest_as_interrupted(fixture_data, tmp_path):
-    """`timeout` sends SIGTERM: the CLI must leave status=interrupted, not a stale 'running' manifest."""
+@pytest.mark.parametrize("workers", [0, 2])
+def test_sigterm_wall_clock_cap_closes_manifest_as_interrupted(fixture_data, tmp_path, workers):
+    """`timeout` SIGTERMs the whole process group (main + DataLoader workers): status must be interrupted,
+    not 'running' and not 'failed' from a worker that died first."""
+    import os
     import signal
     import subprocess
     import sys
@@ -358,10 +361,16 @@ def test_sigterm_wall_clock_cap_closes_manifest_as_interrupted(fixture_data, tmp
         f'data.root="{fixture_data["root"]}"',
         "--set",
         "train.epochs=500",
+        "--set",
+        f"train.num_workers={workers}",
+        "--set",
+        f"train.persistent_workers={'true' if workers else 'false'}",
         "--run-dir",
         str(run),
     ]
-    proc = subprocess.Popen(cmd, cwd=repo, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+    proc = subprocess.Popen(
+        cmd, cwd=repo, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, start_new_session=True
+    )
     deadline = time.monotonic() + 120
     while time.monotonic() < deadline:  # wait until training has started and written one epoch
         if (run / "checkpoints" / "last.pt").exists():
@@ -370,9 +379,17 @@ def test_sigterm_wall_clock_cap_closes_manifest_as_interrupted(fixture_data, tmp
     else:
         proc.kill()
         pytest.fail("training did not reach its first checkpoint")
-    proc.send_signal(signal.SIGTERM)
-    _, err = proc.communicate(timeout=120)
+    time.sleep(0.5)  # let the next epoch's workers start
+    os.killpg(proc.pid, signal.SIGTERM)  # as `timeout` does: every process in the group
+    try:
+        _, err = proc.communicate(timeout=60)
+    except subprocess.TimeoutExpired:
+        # Known limit with workers: they ignore SIGTERM, so interpreter exit waits on them until
+        # `timeout --kill-after=60` sends SIGKILL. The manifest is already closed by then.
+        os.killpg(proc.pid, signal.SIGKILL)
+        _, err = proc.communicate(timeout=60)
+        assert workers > 0, "only the worker case may need the SIGKILL follow-up"
     assert proc.returncode != 0
     m = json.loads((run / "run_manifest.json").read_text())
     assert m["status"] == "interrupted" and "SIGTERM" in m["error"], (m["status"], m.get("error"), err[-500:])
-    assert m["epochs"] and m["final_checkpoint"]
+    assert m["epochs"] and m["final_checkpoint"] and m["terminated_by_signal"] == signal.SIGTERM
