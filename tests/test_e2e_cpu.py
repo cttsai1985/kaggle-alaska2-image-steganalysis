@@ -403,3 +403,15 @@ def test_sigterm_wall_clock_cap_closes_manifest_as_interrupted(fixture_data, tmp
     m = json.loads((run / "run_manifest.json").read_text())
     assert m["status"] == "interrupted" and "SIGTERM" in m["error"], (m["status"], m.get("error"), err[-500:])
     assert m["epochs"] and m["final_checkpoint"] and m["terminated_by_signal"] == signal.SIGTERM
+
+
+def test_verification_receipt_binds_exact_prediction_and_checkpoint_bytes(trained, tmp_path):
+    from alaska2.identity import sha256_file
+
+    _, run = trained
+    checkpoint = run / "checkpoints" / "last.pt"
+    pred = evaluate(checkpoint, out_dir=tmp_path)
+    receipt = verify(pred)
+    assert receipt["predictions_sha256"] == sha256_file(pred)
+    assert receipt["checkpoint_sha256"] == sha256_file(checkpoint)
+    assert receipt["model_sha256"] == load_checkpoint(checkpoint)["model_sha256"]

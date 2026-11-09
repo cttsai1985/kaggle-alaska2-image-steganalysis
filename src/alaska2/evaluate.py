@@ -239,6 +239,9 @@ def verify(
     logit_delta = float(np.abs(logits - saved.select([f"logit_{c}" for c in CLASSES]).to_numpy()).max())
     res = {
         "kind": "verify",
+        "predictions_sha256": sha256_file(pred_path),
+        "checkpoint_sha256": sha256_file(ckpt_path),
+        "model_sha256": ckpt["model_sha256"],
         "predictions": str(pred_path),
         "checkpoint": str(ckpt_path),
         "purpose": meta["purpose"],
