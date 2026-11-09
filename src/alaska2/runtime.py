@@ -44,8 +44,14 @@ def make_loader(ds: ImageDataset, cfg: dict, batch_size: int, train: bool, epoch
     t = cfg["train"]
     workers = int(t["num_workers"])
     sampler = EpochShuffleSampler(len(ds), seed=int(t["seed"]), epoch=epoch, shuffle=train)
+    # Dedicated generator: each new loader iterator draws its worker base seed from ``generator``; with
+    # ``generator=None`` that draw consumes the global CPU RNG. A persistent loader draws only on its first
+    # iteration, so a resumed run would take one extra draw after ``set_rng_state`` and shift later CPU
+    # dropout masks. Augmentation never reads worker RNG (it is a pure function of seed, epoch, row).
+    gen = torch.Generator().manual_seed(int(t["seed"]) + int(epoch))
     return DataLoader(
         ds,
+        generator=gen,
         batch_size=batch_size,
         sampler=sampler,
         drop_last=train,

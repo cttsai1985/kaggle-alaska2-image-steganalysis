@@ -42,7 +42,45 @@ def git_source(repo: Path | None = None) -> dict:
 
     sha = run("rev-parse", "HEAD")
     status = run("status", "--porcelain", "--untracked-files=no")
-    return {"git_sha": sha, "dirty": bool(status) if status is not None else None}
+    return {
+        "git_sha": sha,
+        "dirty": bool(status) if status is not None else None,
+        "package_sha256": package_source_sha256(),
+    }
+
+
+def package_source_sha256(pkg: Path | None = None) -> str:
+    """Content hash of the code that runs: sorted ``relpath\tsha256`` of every ``alaska2/*.py`` file.
+
+    Catches edits in a dirty tree, which ``git_sha`` alone does not.
+    """
+    pkg = pkg or Path(__file__).resolve().parent
+    files = sorted(p for p in pkg.rglob("*.py") if "__pycache__" not in p.parts)
+    lines = [f"{p.relative_to(pkg).as_posix()}\t{sha256_file(p)}" for p in files]
+    return hashlib.sha256("\n".join(lines).encode()).hexdigest()
+
+
+def run_provenance() -> dict:
+    """Source and runtime identity of the current process; stored in every checkpoint, compared on resume."""
+
+    def plain(v):  # e.g. torch.__version__ is a str subclass that weights_only checkpoint loading rejects
+        return v if v is None or type(v) in (bool, int, float) else str(v)
+
+    return {
+        "source": {k: plain(v) for k, v in git_source().items()},
+        "versions": {k: plain(v) for k, v in runtime_versions().items()},
+    }
+
+
+def provenance_diff(saved: dict | None, current: dict) -> list[str]:
+    """Dotted keys whose value differs between a checkpoint's provenance and the current process."""
+    if not saved:
+        return ["provenance (absent from checkpoint)"]
+    out = []
+    for sect in ("source", "versions"):
+        a, b = saved.get(sect) or {}, current.get(sect) or {}
+        out += [f"{sect}.{k}" for k in sorted(set(a) | set(b)) if a.get(k) != b.get(k)]
+    return out
 
 
 def runtime_versions() -> dict:

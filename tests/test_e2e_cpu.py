@@ -108,6 +108,24 @@ def test_interrupted_run_resumes_to_identical_weights(trained, tmp_path, fixture
     assert a["global_step"] == b["global_step"]
 
 
+def test_persistent_worker_resume_replays_dropout_identically(fixture_cfg, tmp_path):
+    """Workers > 0 with persistent workers and nonzero dropout: the loader's base-seed draw must not consume
+    the global CPU RNG, or the resumed run's dropout masks diverge from the uninterrupted run."""
+    extra = ("train.num_workers=2", "train.persistent_workers=true", "model.drop_rate=0.5")
+    cfg = fixture_cfg(*extra)
+    assert cfg["model"]["drop_rate"] > 0
+    straight = train(cfg, run_dir=tmp_path / "straight_pw")
+    drill_cfg = fixture_cfg(*extra, "train.fault_inject_after_epoch=1")
+    run = tmp_path / "drill_pw"
+    with pytest.raises(FaultInjected):
+        train(drill_cfg, run_dir=run)
+    train(drill_cfg, resume=run)
+    a = load_checkpoint(straight / "checkpoints" / "last.pt")
+    b = load_checkpoint(run / "checkpoints" / "last.pt")
+    assert a["global_step"] == b["global_step"]
+    assert a["model_sha256"] == b["model_sha256"]
+
+
 def test_resume_rejects_changed_identity(trained, fixture_cfg):
     _, run = trained
     with pytest.raises(IdentityError, match="config_sha256"):
@@ -206,3 +224,114 @@ def test_training_loop_can_memorize_one_batch(fixture_cfg, tmp_path):
     run = train(cfg, run_dir=tmp_path / "memorize")
     losses = [e["train_loss_mean"] for e in json.loads((run / "run_manifest.json").read_text())["epochs"]]
     assert losses[-1] < 0.1 * losses[0], losses
+
+
+# --- verify must enforce the declared population and canonical labels (review finding 1) -----------------
+
+
+def _self_consistent(pred_path, frame):
+    """Rewrite predictions and refresh the sidecar hash, so only membership/label checks can catch it."""
+    from alaska2.identity import sha256_file
+    from alaska2.runtime import write_json
+
+    frame.write_parquet(pred_path)
+    meta_path = pred_path.with_suffix(".json")
+    meta = json.loads(meta_path.read_text())
+    meta["predictions_sha256"] = sha256_file(pred_path)
+    write_json(meta_path, meta)
+
+
+def test_verify_rejects_fit_row_predictions(trained, tmp_path):
+    from alaska2.evaluate import infer, load_model, prediction_frame
+    from alaska2.identity import sha256_file
+    from alaska2.inputs import prepare_inputs
+    from alaska2.runtime import resolve_device
+
+    cfg, run = trained
+    ckpt_path = run / "checkpoints" / "last.pt"
+    pred_path = evaluate(ckpt_path, out_dir=tmp_path)
+    inputs = prepare_inputs(cfg)
+    fit = inputs.records.filter(pl.col("role") == "fit")
+    model, ckpt = load_model(ckpt_path, resolve_device("cpu"))
+    logits = infer(model, fit, inputs.images_dir, cfg, resolve_device("cpu"))
+    _self_consistent(pred_path, prediction_frame(fit, logits, ckpt, sha256_file(ckpt_path)))
+    with pytest.raises(IdentityError, match="prediction IDs differ"):
+        verify(pred_path)
+
+
+def test_verify_rejects_missing_holdout_rows(trained, tmp_path):
+    _, run = trained
+    pred_path = evaluate(run / "checkpoints" / "last.pt", out_dir=tmp_path)
+    pred = pl.read_parquet(pred_path)
+    _self_consistent(pred_path, pred.head(pred.height - 4))
+    with pytest.raises(IdentityError, match="4 missing"):
+        verify(pred_path)
+
+
+def test_verify_rejects_wrong_saved_labels(trained, tmp_path):
+    _, run = trained
+    pred_path = evaluate(run / "checkpoints" / "last.pt", out_dir=tmp_path)
+    pred = pl.read_parquet(pred_path)
+    flipped = pred.with_columns(pl.when(pl.col("label") == 0).then(1).otherwise(0).alias("label"))
+    _self_consistent(pred_path, flipped)
+    with pytest.raises(IdentityError, match="label"):
+        verify(pred_path)
+
+
+def test_verify_rejects_wrong_saved_fold(trained, tmp_path):
+    _, run = trained
+    pred_path = evaluate(run / "checkpoints" / "last.pt", out_dir=tmp_path)
+    pred = pl.read_parquet(pred_path)
+    _self_consistent(pred_path, pred.with_columns((pl.col("fold") + 1).cast(pred["fold"].dtype)))
+    with pytest.raises(IdentityError, match="fold"):
+        verify(pred_path)
+
+
+def test_verify_reports_membership(trained, tmp_path):
+    _, run = trained
+    pred_path = evaluate(run / "checkpoints" / "last.pt", out_dir=tmp_path)
+    res = verify(pred_path)
+    assert res["passed"] and res["checks"]["saved_rows_match_canonical_inputs"]
+    assert res["membership"]["missing"] == 0 and res["membership"]["rows"] == res["rows"]
+
+
+# --- resume must not mix source revisions or runtime environments (review finding 3) ----------------------
+
+
+def test_checkpoint_records_provenance(trained):
+    _, run = trained
+    ck = load_checkpoint(run / "checkpoints" / "last.pt")
+    m = json.loads((run / "run_manifest.json").read_text())
+    assert ck["provenance"]["source"] == m["source"] and ck["provenance"]["versions"] == m["versions"]
+    assert len(ck["provenance"]["source"]["package_sha256"]) == 64
+
+
+@pytest.mark.parametrize(
+    "section,key,value",
+    [("source", "git_sha", "0" * 40), ("source", "package_sha256", "f" * 64), ("versions", "torch", "0.0")],
+)
+def test_resume_rejects_changed_provenance(fixture_cfg, tmp_path, monkeypatch, section, key, value):
+    import alaska2.train as train_mod
+    from alaska2.identity import run_provenance
+
+    cfg = fixture_cfg("train.fault_inject_after_epoch=1")
+    run = tmp_path / "prov"
+    with pytest.raises(FaultInjected):
+        train(cfg, run_dir=run)
+    changed = run_provenance()
+    changed[section][key] = value
+    monkeypatch.setattr(train_mod, "run_provenance", lambda: changed)
+    with pytest.raises(IdentityError, match=f"{section}.{key}"):
+        train(cfg, resume=run)
+    m = json.loads((run / "run_manifest.json").read_text())
+    assert m["status"] == "interrupted" and "resumes" not in m  # rejected before any continuation
+
+
+def test_resume_records_each_continuation_provenance(fixture_cfg, tmp_path):
+    cfg = fixture_cfg("train.fault_inject_after_epoch=1")
+    run = tmp_path / "prov_ok"
+    with pytest.raises(FaultInjected):
+        train(cfg, run_dir=run)
+    train(cfg, resume=run)
+    m = json.loads((run / "run_manifest.json").read_text())
+    assert m["resumes"][0]["provenance"]["source"] == m["source"]

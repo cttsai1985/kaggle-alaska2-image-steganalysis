@@ -107,6 +107,33 @@ def assert_membership(pred: pl.DataFrame, expected: pl.DataFrame) -> dict:
     return {"rows": pred.height, "expected_rows": expected.height, "missing": 0, "extra": 0, "duplicates": 0}
 
 
+CANONICAL_COLUMNS = ("family_id", "label", "fold", "quality")
+
+
+def expected_population(inputs, split: str) -> pl.DataFrame:
+    """The population a prediction file must cover exactly: holdout rows, or the unlabeled test set."""
+    if split == "valid":
+        return inputs.records.filter(pl.col("role") == "valid")
+    if split == "test":
+        return inputs.test
+    raise ValueError("split must be valid or test")
+
+
+def canonical_mismatches(saved: pl.DataFrame, canonical: pl.DataFrame) -> dict:
+    """Per-column count of rows whose saved value differs from the canonical record (row-aligned frames)."""
+    out = {}
+    for c in CANONICAL_COLUMNS:
+        if c not in canonical.columns:
+            continue  # the unlabeled test set has no fold
+        if c not in saved.columns:
+            out[c] = "column missing"
+            continue
+        n = int(saved[c].cast(canonical[c].dtype, strict=False).ne_missing(canonical[c]).sum())
+        if n:
+            out[c] = n
+    return out
+
+
 def evaluate(
     ckpt_path: Path, out_dir: Path | None = None, overrides: dict | None = None, split: str = "valid"
 ) -> Path:
@@ -120,12 +147,9 @@ def evaluate(
     model, ckpt = load_model(ckpt_path, device)
     ckpt_sha = sha256_file(ckpt_path)
 
-    if split == "valid":
-        records = inputs.records.filter(pl.col("role") == "valid")
-    elif split == "test":
-        records = inputs.test.with_columns(pl.lit(None, dtype=pl.Int32).alias("fold"))
-    else:
-        raise ValueError("split must be valid or test")
+    records = expected_population(inputs, split)
+    if split == "test":
+        records = records.with_columns(pl.lit(None, dtype=pl.Int32).alias("fold"))
     t0 = time.perf_counter()
     logits = infer(model, records, inputs.images_dir, cfg, device)
     wall = time.perf_counter() - t0
@@ -193,15 +217,21 @@ def verify(
         "checkpoint_sha256_matches": sha256_file(ckpt_path) == meta["checkpoint_sha256"],
     }
     model, ckpt = load_model(ckpt_path, device)  # raises if the reloaded weights hash differs
-    checks["model_sha256_matches"] = ckpt["model_sha256"] == meta["model_sha256"] == saved["model_sha256"][0]
+    checks["model_sha256_matches"] = ckpt["model_sha256"] == meta["model_sha256"] and bool(
+        (saved["model_sha256"] == meta["model_sha256"]).all()
+    )
     inputs = prepare_inputs(cfg)
     _check_identities(ckpt, inputs.identities)
-    pool = inputs.records if meta["split"] == "valid" else inputs.test
+    expected = expected_population(inputs, meta["split"])
+    # Exact holdout (or test) coverage before any inference: no fit rows, no missing rows, no duplicates.
+    membership = assert_membership(saved, expected)
     records = saved.select("image", "kind").join(
-        pool, on=["image", "kind"], how="left", validate="1:1", maintain_order="left"
+        expected, on=["image", "kind"], how="left", validate="1:1", maintain_order="left"
     )
-    if records["relpath"].is_null().any():
-        raise IdentityError("saved prediction rows are missing from the current inputs")
+    mism = canonical_mismatches(saved, records)
+    if mism:
+        raise IdentityError(f"saved label/fold/family/quality differ from the canonical inputs: {mism}")
+    checks["saved_rows_match_canonical_inputs"] = True
     logits = infer(model, records, inputs.images_dir, cfg, device)
     probs = softmax(logits)
     saved_p = saved.select([f"p_{c}" for c in CLASSES]).to_numpy()
@@ -215,6 +245,7 @@ def verify(
         "result_label": meta["result_label"],
         "device": str(device),
         "rows": saved.height,
+        "membership": membership,
         "tolerance": tol,
         "observed": {"max_abs_prob_delta": prob_delta, "max_abs_logit_delta": logit_delta},
         "checks": checks,
@@ -222,7 +253,7 @@ def verify(
     }
     ok = all(checks.values()) and prob_delta <= float(tol["prob_atol"])
     if meta["split"] == "valid":
-        y = saved["label"].to_numpy() != 0
+        y = records["label"].to_numpy() != 0  # canonical labels, never the saved column
         m_saved = weighted_auc(y, saved["score"].to_numpy())
         m_new = weighted_auc(y, binary_score(probs))
         res["observed"]["weighted_auc_saved"] = m_saved

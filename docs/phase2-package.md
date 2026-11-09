@@ -66,7 +66,9 @@ applied in that order. Validation applies no transform. Why these are suitable f
   offset, colour jitter, blur and JPEG re-encoding, because each one would change or destroy the stego signal.
 
 Augmentation randomness is a pure function of `(seed, epoch, row)`. It does not depend on the worker count, the
-worker order or the resume point. The shuffle is `torch.Generator(seed + epoch)`.
+worker order or the resume point. The shuffle is `torch.Generator(seed + epoch)`. The DataLoader also gets its own
+`torch.Generator(seed + epoch)`, so drawing the worker base seed never consumes the global CPU RNG. Without it, a
+resumed persistent-worker loader would take one extra draw and change later CPU dropout masks.
 
 ## 4. Split contract (`alaska2.splits`)
 
@@ -137,9 +139,13 @@ sha256. A fresh run_id is required, and an existing run dir is refused. Failed a
 manifest, with `status = failed` or `interrupted`, the error and the traceback tail.
 
 **Resume** (`train --resume RUN_DIR`) restarts from the last completed epoch. It is rejected when the config,
-input-manifest, folds or population hash differs from the checkpoint. A labeled fault drill
+input-manifest, folds or population hash differs from the checkpoint. It is also rejected when the source or
+runtime provenance differs. Each checkpoint stores `git_sha`, `dirty`, `package_sha256` (a hash of every
+`alaska2/*.py`) and the runtime versions, so one run never mixes code revisions or environments. Each accepted
+continuation records its own provenance in `run_manifest.resumes`. A labeled fault drill
 (`train.fault_inject_after_epoch`) stops after epoch 1. Resuming then gives a `model_sha256` and `global_step`
-**equal** to an uninterrupted 2-epoch run (CPU, fixture). This tests **interrupted-training recovery only**.
+**equal** to an uninterrupted 2-epoch run (CPU, fixture). The equality holds with 0 workers and with 2 persistent
+workers at dropout 0.5. This tests **interrupted-training recovery only**.
 Stage and artifact-delivery recovery is not tested here (phase 3).
 
 ## 7. Evaluate, predict, verify (`alaska2.evaluate`)
@@ -153,12 +159,16 @@ Stage and artifact-delivery recovery is not tested here (phase 3).
 - `evaluate` and `verify` use the checkpoint's own config. Only runtime keys can change: data root, device,
   workers and eval batch. Inputs whose identities differ from training are rejected. The test swaps folds 1 and 2
   and the evaluation is refused.
-- `verify` rebuilds the model from the checkpoint alone and checks the weight hash. It re-runs inference on
-  exactly the saved rows in saved order, then compares against the declared tolerance:
+- `verify` rebuilds the model from the checkpoint alone and checks the weight hash. Before inference it asserts
+  that the saved `(image, kind)` set equals the declared population exactly (`role = valid`, or the full `Test/`
+  set). It also rejects any saved label, fold, family_id or quality that differs from the canonical records.
+  Metrics are rebuilt from the canonical labels. Fit-row predictions, missing holdout rows, flipped labels and a
+  shifted fold are each rejected in a test. It then re-runs inference on exactly the saved rows in saved order and
+  compares against the declared tolerance:
   `prob_atol = 1e-3` and `metric_atol = 1e-4` for the GPU baseline, `1e-6` and `1e-9` for the CPU fixture. It also
   checks the checkpoint and prediction file hashes. Tampering with `p_Cover` is detected in a test.
-- Fixture CLI run (CPU, **FIXTURE_NOT_A_MODEL_RESULT**): train (2 epochs) plus evaluate took 11.4 s. Verify passed
-  with observed max |Δp| = 0.0 and Δ weighted AUC = 0.0.
+- Fixture CLI run (CPU, **FIXTURE_NOT_A_MODEL_RESULT**): train (2 epochs) plus evaluate took 9.5 s. Verify passed
+  with observed max |Δp| = 0.0, Δ weighted AUC = 0.0 and holdout membership 16/16 rows (0 missing, 0 extra).
 
 Result labels are attached to every manifest and prediction file: `FIXTURE_NOT_A_MODEL_RESULT`,
 `SMOKE_READINESS_ONLY_NOT_A_MODEL_RESULT`, `FAULT_DRILL_NOT_A_MODEL_RESULT`, `REAL_DATA_BASELINE`. A fixture or
@@ -170,7 +180,7 @@ smoke number is never a model result.
 | --- | --- |
 | `validate_real_data.json` | `uv run python -m alaska2 validate --config configs/baseline_effb0_fold1.toml --rehash-sample 2000 --decode-sample 64`: manifest and folds hashes equal phase 1; 0 families or content groups cross roles; 2,000 files rehashed with 0 mismatches; 64 real images decoded to finite `3×512×512` float32 tensors |
 | `cuda_check.json` | `torch.cuda.is_available() = True`; one-batch bf16 forward/backward test passed; GPU at 893 MiB / 3 % before and after |
-| `cpu_contracts.json` | `pytest -m "not cuda"`: 78 passed (50 new + 28 phase 1); ruff check and format clean; fixture CLI run and resume drill |
+| `cpu_contracts.json` | `pytest -m "not cuda"`: 89 passed (61 new + 28 phase 1); ruff check and format clean; fixture CLI run, resume drills and review fixes |
 
 **Not measured yet (part B):** GPU training throughput, peak VRAM, the epoch count E fixed from the smoke
 (`E = min(6, floor((10800 − 900) / epoch_s))`), and any real-data model score.

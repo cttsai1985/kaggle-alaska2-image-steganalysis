@@ -1,5 +1,5 @@
 {
-  "captured_at_utc": "2026-11-09T17:14:25Z",
+  "captured_at_utc": "2026-11-09T17:35:07Z",
   "commands": {
     "cpu": "uv run pytest -q -m \"not cuda\"",
     "cuda_check": "uv run pytest -q -m cuda",
@@ -8,7 +8,14 @@
   },
   "fixture_cli_run": {
     "note": "uv run python -m alaska2 train --config configs/fixture_cpu.toml (2 epochs, 64 fit rows, 16 holdout rows, CPU) then verify",
-    "observed_note": "final config; an earlier run before the drop_rate/label_smoothing change observed max_abs_prob_delta 1.69e-07 (evaluate in the 2-thread training process vs verify in a fresh process), also within 1e-6",
+    "observed_note": "re-run after the review fixes; an earlier run before the drop_rate/label_smoothing change observed max_abs_prob_delta 1.69e-07 (evaluate in the 2-thread training process vs verify in a fresh process), also within 1e-6",
+    "verify_membership": {
+      "duplicates": 0,
+      "expected_rows": 16,
+      "extra": 0,
+      "missing": 0,
+      "rows": 16
+    },
     "verify_observed": {
       "max_abs_logit_delta": 0.0,
       "max_abs_prob_delta": 0.0,
@@ -19,21 +26,26 @@
       "metric_atol": 1e-09,
       "prob_atol": 1e-06
     },
-    "wall_s_train_plus_evaluate": 11.36
+    "wall_s_train_plus_evaluate": 9.46
   },
   "kind": "cpu_contract_tests",
   "label": "FIXTURE_NOT_A_MODEL_RESULT (synthetic 64x64 JPEGs; plumbing only)",
   "results": {
-    "cpu": "78 passed, 1 deselected in 65.40s (0:01:05)",
-    "cuda_check": "1 passed, 78 deselected in 16.89s",
+    "cpu": "89 passed, 1 deselected in 81.81s (0:01:21)",
+    "cuda_check": "1 passed, 78 deselected in 16.89s (captured before the review fixes; the CUDA test does one forward/backward batch and does not use the changed loader/resume/verify code, so it was not re-run)",
     "format": "28 files already formatted",
     "lint": "All checks passed!"
   },
-  "resume_drill": "tests/test_e2e_cpu.py::test_interrupted_run_resumes_to_identical_weights: fault injected after epoch 1 -> status interrupted (manifest kept) -> resume -> model_sha256 equal to the uninterrupted 2-epoch run (CPU, workers 0). Interrupted-training recovery only; stage/artifact-delivery recovery is not tested here.",
+  "resume_drill": "tests/test_e2e_cpu.py::test_interrupted_run_resumes_to_identical_weights (CPU, workers 0) and ::test_persistent_worker_resume_replays_dropout_identically (CPU, 2 persistent workers, drop_rate 0.5): fault injected after epoch 1 -> status interrupted (manifest kept) -> resume -> model_sha256 and global_step equal to the uninterrupted 2-epoch run. The persistent-worker test failed before the dedicated loader generator was added. Interrupted-training recovery only; stage/artifact-delivery recovery is not tested here.",
+  "review_fixes": {
+    "loader_generator": "DataLoader gets torch.Generator(seed + epoch) so the worker base-seed draw no longer consumes the global CPU RNG.",
+    "resume_provenance": "checkpoints store provenance = {source: git_sha, dirty, package_sha256 (sorted relpath+sha256 of alaska2/*.py), versions: runtime_versions()}; resume is rejected when any key differs (tests: git_sha, package_sha256, torch version), and each accepted continuation records its provenance in run_manifest.resumes.",
+    "verify_membership": "verify asserts exact (image, kind) coverage of role=valid (or the full Test set) before inference and rejects saved label/fold/family_id/quality that differ from canonical records; metrics use canonical labels. 4 rejection tests (fit-row predictions, 4 missing holdout rows, flipped labels, shifted fold) each failed with DID NOT RAISE on the previous evaluate.py and pass now."
+  },
   "tests_per_file": {
     "tests/test_contracts.py": 23,
     "tests/test_cuda.py": 1,
-    "tests/test_e2e_cpu.py": 12,
+    "tests/test_e2e_cpu.py": 23,
     "tests/test_metrics.py": 15,
     "tests/test_readiness.py (phase 1)": 28
   }

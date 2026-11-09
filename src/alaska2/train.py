@@ -20,7 +20,7 @@ from torch import nn
 from alaska2.config import config_hash, data_paths
 from alaska2.constants import CLASSES, PURPOSE_LABELS
 from alaska2.data import ImageDataset
-from alaska2.identity import git_source, runtime_versions, sha256_file
+from alaska2.identity import provenance_diff, run_provenance, sha256_file
 from alaska2.inputs import prepare_inputs, seed_everything
 from alaska2.model import build_model, load_checkpoint, state_dict_sha256
 from alaska2.runtime import (
@@ -62,6 +62,7 @@ def train(cfg: dict, run_dir: Path | None = None, resume: Path | None = None) ->
     device = resolve_device(t["device"])
     inputs = prepare_inputs(cfg)
     identities = {"config_sha256": config_hash(cfg), **inputs.identities}
+    provenance = run_provenance()
 
     if resume is not None:
         run_dir = Path(resume)
@@ -69,8 +70,16 @@ def train(cfg: dict, run_dir: Path | None = None, resume: Path | None = None) ->
         diff = [k for k in IDENTITY_KEYS if ckpt["identities"].get(k) != identities.get(k)]
         if diff:
             raise IdentityError(f"resume rejected: identities differ on {diff}")
+        # One run = one source revision and one runtime environment; a continuation under different code or
+        # dependencies would be attributed to the original provenance, so it is rejected (start a fresh run).
+        pdiff = provenance_diff(ckpt.get("provenance"), provenance)
+        if pdiff:
+            raise IdentityError(f"resume rejected: source/runtime provenance differs on {pdiff}")
         manifest = _read_manifest(run_dir)
-        manifest["resumes"] = [*manifest.get("resumes", []), {"at": utc_now(), "from_epoch": ckpt["epoch"]}]
+        manifest["resumes"] = [
+            *manifest.get("resumes", []),
+            {"at": utc_now(), "from_epoch": ckpt["epoch"], "provenance": provenance},
+        ]
     else:
         run_dir = Path(run_dir) if run_dir else data_paths(cfg)["runs_dir"] / default_run_id(cfg)
         if run_dir.exists():
@@ -82,10 +91,10 @@ def train(cfg: dict, run_dir: Path | None = None, resume: Path | None = None) ->
             "purpose": cfg["purpose"],
             "result_label": PURPOSE_LABELS[cfg["purpose"]],
             "started_at": utc_now(),
-            "source": git_source(),
+            "source": provenance["source"],
             "identities": identities,
             "population_audit": inputs.audit,
-            "versions": runtime_versions(),
+            "versions": provenance["versions"],
             "classes": list(CLASSES),
             "checkpoint_policy": "last_completed_epoch (fixed budget; holdout labels never select an epoch)",
             "config": {k: v for k, v in cfg.items() if not k.startswith("_")},
@@ -96,7 +105,7 @@ def train(cfg: dict, run_dir: Path | None = None, resume: Path | None = None) ->
     write_json(run_dir / "run_manifest.json", manifest)
 
     try:
-        _fit(cfg, inputs, identities, device, run_dir, manifest, ckpt)
+        _fit(cfg, inputs, identities, provenance, device, run_dir, manifest, ckpt)
     except BaseException as exc:  # keep failed / interrupted runs visible
         manifest["status"] = "interrupted" if isinstance(exc, KeyboardInterrupt | FaultInjected) else "failed"
         manifest["error"] = f"{type(exc).__name__}: {exc}"
@@ -115,7 +124,7 @@ def _read_manifest(run_dir: Path) -> dict:
     return json.loads((run_dir / "run_manifest.json").read_text())
 
 
-def _fit(cfg, inputs, identities, device, run_dir, manifest, ckpt) -> None:
+def _fit(cfg, inputs, identities, provenance, device, run_dir, manifest, ckpt) -> None:
     t = cfg["train"]
     seed = int(t["seed"])
     seed_everything(seed)
@@ -226,6 +235,7 @@ def _fit(cfg, inputs, identities, device, run_dir, manifest, ckpt) -> None:
             "rng": rng_state(),
             "config": {k: v for k, v in cfg.items() if not k.startswith("_")},
             "identities": identities,
+            "provenance": provenance,
             "pretrained_weights": weights,
             "classes": list(CLASSES),
         }
