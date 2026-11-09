@@ -18,14 +18,24 @@ nvidia-smi --query-gpu=timestamp,memory.used,utilization.gpu --format=csv,nohead
 MON=$!
 t0=$(date +%s.%N)
 start_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-timeout --kill-after=60 "$CAP_S" uv run python -m alaska2 train --config "$CONFIG" --run-id "$RUN_ID" "${SETS[@]}" \
+# Host contention at launch (aggregate only; container names, never PIDs or env).
+{ echo "{\"at_utc\": \"$start_utc\", \"loadavg\": \"$(cut -d' ' -f1-3 /proc/loadavg)\","
+  echo " \"logical_threads\": $(nproc), \"cpu_psi\": \"$(head -1 /proc/pressure/cpu)\","
+  echo " \"io_psi_full\": \"$(sed -n 2p /proc/pressure/io)\","
+  echo " \"top_cpu_containers\": \"$(docker stats --no-stream --format '{{.Name}}={{.CPUPerc}}' 2>/dev/null \
+       | sort -t= -k2 -rn | head -3 | tr '\n' ' ')\","
+  echo " \"gpu\": \"$(nvidia-smi --query-gpu=memory.used,utilization.gpu --format=csv,noheader)\","
+  echo " \"our_priority\": \"nice -n 19, ionice -c3 (idle)\"}"; } > "$STAGE/host_contention.json"
+# Lowest CPU and IO priority: other tenants (e.g. a production CPU job) always get the CPU first.
+NICE=(nice -n 19 ionice -c3)
+timeout --kill-after=60 "$CAP_S" "${NICE[@]}" uv run python -m alaska2 train --config "$CONFIG" --run-id "$RUN_ID" "${SETS[@]}" \
   > "$STAGE/train.log" 2>&1
 rc=$?
 t1=$(date +%s.%N)
 verify_rc=skipped
 PRED=$(ls "$RUN_DIR"/predictions/valid_epoch*[0-9].parquet 2>/dev/null | tail -1)
 if [ "$rc" = 0 ] && [ -n "$PRED" ]; then
-  uv run python -m alaska2 verify --predictions "$PRED" > "$STAGE/verify.log" 2>&1
+  "${NICE[@]}" uv run python -m alaska2 verify --predictions "$PRED" > "$STAGE/verify.log" 2>&1
   verify_rc=$?
 fi
 t2=$(date +%s.%N)

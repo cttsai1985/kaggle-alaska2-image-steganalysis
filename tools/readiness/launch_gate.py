@@ -148,7 +148,7 @@ def reading(
     }
 
 
-def evaluate(r: dict, t: Thresholds) -> dict:
+def evaluate(r: dict, t: Thresholds, advisory: tuple[str, ...] = ()) -> dict:
     """Pure decision: every criterion with its value, limit and pass flag; GO only if all pass."""
     checks: dict[str, dict] = {}
 
@@ -196,6 +196,12 @@ def evaluate(r: dict, t: Thresholds) -> dict:
     need = t.disk_floor_gib + t.run_output_gib
     for fs, free in r["free_gib"].items():
         check(f"disk_free_gib_{fs}", free, f">= {need}", free >= need)
+    for name in advisory:  # operator-declared: recorded, never blocking (GPU/disk cannot be made advisory)
+        if name in checks:
+            if name.startswith(("gpu_", "disk_")):
+                raise ValueError(f"{name} is a hard limit and cannot be advisory")
+            checks[name]["advisory"] = True
+            checks[name]["advisory_reason"] = "operator override"
     failing = sorted(k for k, c in checks.items() if not c["pass"] and not c.get("advisory"))
     advisory_failing = sorted(k for k, c in checks.items() if not c["pass"] and c.get("advisory"))
     return {
@@ -221,6 +227,13 @@ def main() -> None:
     ap.add_argument("--cpu-window-s", type=float, default=5.0, help="idle-CPU sampling window (0 = loadavg)")
     ap.add_argument("--read-probe-files", type=int, default=0, help="random image files to read (0 = off)")
     ap.add_argument("--images-subdir", default="raw/extracted")
+    ap.add_argument(
+        "--advisory",
+        action="append",
+        default=[],
+        help="criterion recorded but not blocking (operator override; gpu_* and disk_* are refused)",
+    )
+    ap.add_argument("--override-note", default="", help="who decided the override, and when")
     ap.add_argument("--wait-max-s", type=int, default=0, help="poll until GO for up to this long (0 = once)")
     ap.add_argument("--poll-s", type=int, default=120)
     ap.add_argument("--out", type=Path)
@@ -237,7 +250,7 @@ def main() -> None:
             a.read_probe_files,
             a.images_subdir if a.read_probe_files else "",
         )
-        res = evaluate(r, t)
+        res = evaluate(r, t, tuple(a.advisory))
         attempts.append(
             {
                 "at_utc": dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -257,6 +270,7 @@ def main() -> None:
         "thresholds": asdict(t),
         "final": res,
         "final_reading": r,
+        "advisory_overrides": {"criteria": a.advisory, "note": a.override_note} if a.advisory else None,
         "attempts": attempts,
         "waited_s": round(time.monotonic() - t0, 1),
         "redaction": "aggregate host readings only; no PIDs, process names, env vars or identities",

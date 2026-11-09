@@ -48,7 +48,7 @@ device = "cuda"
 seed = 20261109
 epochs = 6                # cap from the plan; phase 2B fixes E = min(6, floor((10800 - 900) / epoch_s)) from the smoke
 batch_size = 32
-num_workers = 8           # operator cap 16; phase 2B: 1 worker decodes 104-169 img/s under host load, 8 cover the GPU rate
+num_workers = 6           # phase 2B operator cap 6 (2026-11-09, host CPU busy); hard cap 16
 pin_memory = true
 persistent_workers = true
 prefetch_factor = 4

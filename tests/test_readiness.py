@@ -276,3 +276,13 @@ def test_launch_gate_io_psi_is_advisory_only_with_a_warm_cache_probe():
     slow = evaluate(_host(**hot_io, read_probe={"files": 600, "files_per_s": 150.0}), Thresholds())
     assert slow["failing"] == ["io_psi_full_avg60", "io_psi_some_avg60"]
     assert "io_read_probe_files_per_s" in slow["advisory_failing"]
+
+
+def test_launch_gate_operator_advisory_override_keeps_gpu_and_disk_hard():
+    busy = _host(loadavg_1=35.0, cpu_psi={"some_avg60": 18.0})
+    assert evaluate(busy, Thresholds())["failing"] == ["cpu_free_threads", "cpu_psi_some_avg60"]
+    res = evaluate(busy, Thresholds(), ("cpu_free_threads", "cpu_psi_some_avg60"))
+    assert res["decision"] == "GO" and res["advisory_failing"] == ["cpu_free_threads", "cpu_psi_some_avg60"]
+    gpu_busy = _host(gpu={"index": 0, "memory_used_mib": 4000, "utilization_gpu_pct": 2})
+    with pytest.raises(ValueError, match="hard limit"):
+        evaluate(gpu_busy, Thresholds(), ("gpu_other_used_mib",))
