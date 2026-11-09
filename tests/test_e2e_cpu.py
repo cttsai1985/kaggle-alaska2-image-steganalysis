@@ -335,3 +335,44 @@ def test_resume_records_each_continuation_provenance(fixture_cfg, tmp_path):
     train(cfg, resume=run)
     m = json.loads((run / "run_manifest.json").read_text())
     assert m["resumes"][0]["provenance"]["source"] == m["source"]
+
+
+def test_sigterm_wall_clock_cap_closes_manifest_as_interrupted(fixture_data, tmp_path):
+    """`timeout` sends SIGTERM: the CLI must leave status=interrupted, not a stale 'running' manifest."""
+    import signal
+    import subprocess
+    import sys
+    import time
+    from pathlib import Path
+
+    repo = Path(__file__).resolve().parents[1]
+    run = tmp_path / "capped"
+    cmd = [
+        sys.executable,
+        "-m",
+        "alaska2",
+        "train",
+        "--config",
+        str(repo / "configs" / "fixture_cpu.toml"),
+        "--set",
+        f'data.root="{fixture_data["root"]}"',
+        "--set",
+        "train.epochs=500",
+        "--run-dir",
+        str(run),
+    ]
+    proc = subprocess.Popen(cmd, cwd=repo, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+    deadline = time.monotonic() + 120
+    while time.monotonic() < deadline:  # wait until training has started and written one epoch
+        if (run / "checkpoints" / "last.pt").exists():
+            break
+        time.sleep(0.2)
+    else:
+        proc.kill()
+        pytest.fail("training did not reach its first checkpoint")
+    proc.send_signal(signal.SIGTERM)
+    _, err = proc.communicate(timeout=120)
+    assert proc.returncode != 0
+    m = json.loads((run / "run_manifest.json").read_text())
+    assert m["status"] == "interrupted" and "SIGTERM" in m["error"], (m["status"], m.get("error"), err[-500:])
+    assert m["epochs"] and m["final_checkpoint"]

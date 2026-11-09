@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import signal
 import sys
 from pathlib import Path
 
@@ -142,8 +143,14 @@ def build_parser() -> argparse.ArgumentParser:
     return ap
 
 
+def _sigterm_as_interrupt(signum, frame):
+    """``timeout`` (the wall-clock cap) sends SIGTERM; raise so the run manifest is closed as interrupted."""
+    raise KeyboardInterrupt(f"signal {signum} (SIGTERM, e.g. the wall-clock cap)")
+
+
 def main(argv: list[str] | None = None) -> int:
     a = build_parser().parse_args(argv)
+    signal.signal(signal.SIGTERM, _sigterm_as_interrupt)
     return int(a.fn(a))
 
 

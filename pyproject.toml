@@ -24,6 +24,8 @@ alaska2 = "alaska2.cli:main"
 dev = ["pytest>=8.3", "ruff>=0.9"]
 # kept (empty) so the phase-1 `uv run --group probe` command still works; opencv is now a main dependency
 probe = []
+# CPU-only plots for the phase-2 holdout analysis (saved predictions only)
+analysis = ["matplotlib>=3.9"]
 
 [build-system]
 requires = ["hatchling>=1.25"]
