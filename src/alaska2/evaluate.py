@@ -204,8 +204,10 @@ def verify(
     """Rebuild saved predictions from the checkpoint alone and compare within the declared tolerance."""
     pred_path = Path(pred_path)
     meta = json.loads(pred_path.with_suffix(".json").read_text())
+    prediction_sha = sha256_file(pred_path)
     saved = pl.read_parquet(pred_path)
     ckpt_path = Path(ckpt_path or meta["checkpoint"])
+    checkpoint_sha = sha256_file(ckpt_path)
     raw = load_checkpoint(ckpt_path)
     given = {k: v for k, v in (overrides or {}).items() if v is not None}
     merged = {**meta.get("runtime_overrides", {}), **given}
@@ -213,8 +215,8 @@ def verify(
     tol = raw["config"]["verify"]
     device = resolve_device(cfg["train"]["device"])
     checks: dict = {
-        "predictions_sha256_matches": sha256_file(pred_path) == meta["predictions_sha256"],
-        "checkpoint_sha256_matches": sha256_file(ckpt_path) == meta["checkpoint_sha256"],
+        "predictions_sha256_matches": prediction_sha == meta["predictions_sha256"],
+        "checkpoint_sha256_matches": checkpoint_sha == meta["checkpoint_sha256"],
     }
     model, ckpt = load_model(ckpt_path, device)  # raises if the reloaded weights hash differs
     checks["model_sha256_matches"] = ckpt["model_sha256"] == meta["model_sha256"] and bool(
@@ -237,10 +239,18 @@ def verify(
     saved_p = saved.select([f"p_{c}" for c in CLASSES]).to_numpy()
     prob_delta = float(np.abs(probs - saved_p).max())
     logit_delta = float(np.abs(logits - saved.select([f"logit_{c}" for c in CLASSES]).to_numpy()).max())
+    checks["score_matches_probabilities"] = bool(
+        np.array_equal(saved["score"].to_numpy(), binary_score(saved_p))
+    )
+    checks["prediction_file_unchanged"] = sha256_file(pred_path) == prediction_sha
+    checks["checkpoint_file_unchanged"] = sha256_file(ckpt_path) == checkpoint_sha
+    metrics = evaluation_report(saved) if meta["split"] == "valid" else None
+    if metrics is not None:
+        checks["metrics_match_saved_predictions"] = metrics == meta.get("metrics")
     res = {
         "kind": "verify",
-        "predictions_sha256": sha256_file(pred_path),
-        "checkpoint_sha256": sha256_file(ckpt_path),
+        "predictions_sha256": prediction_sha,
+        "checkpoint_sha256": checkpoint_sha,
         "model_sha256": ckpt["model_sha256"],
         "predictions": str(pred_path),
         "checkpoint": str(ckpt_path),
@@ -256,6 +266,7 @@ def verify(
     }
     ok = all(checks.values()) and prob_delta <= float(tol["prob_atol"])
     if meta["split"] == "valid":
+        res["metrics"] = metrics
         y = records["label"].to_numpy() != 0  # canonical labels, never the saved column
         m_saved = weighted_auc(y, saved["score"].to_numpy())
         m_new = weighted_auc(y, binary_score(probs))

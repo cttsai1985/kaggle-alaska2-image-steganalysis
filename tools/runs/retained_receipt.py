@@ -15,6 +15,8 @@ from alaska2.identity import sha256_file
 def retained_receipt(run_dir: Path, predictions_dir: Path, analysis_path: Path | None = None) -> dict:
     """Bind independently rebuilt predictions to the last completed checkpoint; keep incompleteness."""
     run = json.loads((run_dir / "run_manifest.json").read_text())
+    if run.get("purpose") != "baseline" or run["config"].get("purpose") != "baseline":
+        raise ValueError("real-data fallback requires baseline purpose, never fixture/smoke/drill")
     if run["status"] != "interrupted":
         raise ValueError("this fallback requires an interrupted training manifest")
     last = run["epochs"][-1]
@@ -28,6 +30,8 @@ def retained_receipt(run_dir: Path, predictions_dir: Path, analysis_path: Path |
     pred = predictions_dir / f"{stem}.parquet"
     meta = json.loads(pred.with_suffix(".json").read_text())
     ver = json.loads((predictions_dir / f"{stem}.verify.json").read_text())
+    if meta.get("purpose") != "baseline" or meta.get("split") != "valid":
+        raise ValueError("real-data fallback requires baseline holdout predictions")
     if meta["epoch"] != epoch or any(meta[k] != last[k] for k in ("checkpoint_sha256", "model_sha256")):
         raise ValueError("prediction checkpoint/model identity differs from the retained epoch")
     if sha256_file(pred) != meta["predictions_sha256"]:
@@ -46,6 +50,10 @@ def retained_receipt(run_dir: Path, predictions_dir: Path, analysis_path: Path |
         "predictions_sha256_matches",
         "model_sha256_matches",
         "saved_rows_match_canonical_inputs",
+        "score_matches_probabilities",
+        "prediction_file_unchanged",
+        "checkpoint_file_unchanged",
+        "metrics_match_saved_predictions",
     )
     if (
         not ver["passed"]
@@ -53,6 +61,8 @@ def retained_receipt(run_dir: Path, predictions_dir: Path, analysis_path: Path |
         or not all(ver["checks"].get(key) is True for key in required_checks)
     ):
         raise ValueError("independent verification did not pass all required checks")
+    if meta["metrics"] != ver.get("metrics"):
+        raise ValueError("metric metadata differs from independently recomputed metrics")
     tolerance = run["config"]["verify"]
     observed = ver["observed"]
     if not (

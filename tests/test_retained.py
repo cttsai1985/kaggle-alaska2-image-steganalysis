@@ -25,6 +25,7 @@ def retained(tmp_path):
         run / "run_manifest.json",
         {
             "run_id": "test-incomplete",
+            "purpose": "baseline",
             "status": "interrupted",
             "plan": {"epochs": 5},
             "final_checkpoint": "checkpoints/epoch_004.pt",
@@ -32,7 +33,7 @@ def retained(tmp_path):
             "epochs": [{"epoch": 4, "checkpoint_sha256": digest, "model_sha256": "weights"}],
             "population_audit": {"valid": {"rows": 8, "families": 2}},
             "source": {"git_sha": "source", "dirty": True},
-            "config": {"verify": {"prob_atol": 0.001, "metric_atol": 0.0001}},
+            "config": {"purpose": "baseline", "verify": {"prob_atol": 0.001, "metric_atol": 0.0001}},
         },
     )
     pred.mkdir()
@@ -41,6 +42,8 @@ def retained(tmp_path):
         pred / "valid_epoch004.json",
         {
             "epoch": 4,
+            "purpose": "baseline",
+            "split": "valid",
             "checkpoint_sha256": digest,
             "model_sha256": "weights",
             "identities": ids,
@@ -56,6 +59,7 @@ def retained(tmp_path):
     put(
         pred / "valid_epoch004.verify.json",
         {
+            "metrics": {"pooled": {"weighted_auc": 0.6}},
             "passed": True,
             "rows": 8,
             "predictions_sha256": hashlib.sha256((pred / "valid_epoch004.parquet").read_bytes()).hexdigest(),
@@ -66,6 +70,10 @@ def retained(tmp_path):
                 "predictions_sha256_matches": True,
                 "model_sha256_matches": True,
                 "saved_rows_match_canonical_inputs": True,
+                "score_matches_probabilities": True,
+                "prediction_file_unchanged": True,
+                "checkpoint_file_unchanged": True,
+                "metrics_match_saved_predictions": True,
             },
             "observed": {"max_abs_prob_delta": 0.0, "weighted_auc_delta": 0.0},
         },
@@ -133,3 +141,23 @@ def test_rejects_analysis_of_different_prediction_artifact(retained, tmp_path):
     put(analysis, {"predictions_sha256": "wrong", "model_sha256": "weights"})
     with pytest.raises(ValueError, match="analysis.*identity"):
         retained_receipt(run, pred, analysis)
+
+
+def test_rejects_changed_sidecar_metrics(retained):
+    run, pred = retained
+    path = pred / "valid_epoch004.json"
+    data = json.loads(path.read_text())
+    data["metrics"]["pooled"]["weighted_auc"] = 99.0
+    put(path, data)
+    with pytest.raises(ValueError, match="metric"):
+        retained_receipt(run, pred)
+
+
+def test_never_promotes_fixture_to_real_model_result(retained):
+    run, pred = retained
+    path = run / "run_manifest.json"
+    data = json.loads(path.read_text())
+    data["purpose"] = "fixture"
+    put(path, data)
+    with pytest.raises(ValueError, match="baseline"):
+        retained_receipt(run, pred)

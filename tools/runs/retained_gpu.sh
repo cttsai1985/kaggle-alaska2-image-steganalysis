@@ -26,10 +26,22 @@ run_id=$4
 cap=${5:-1800}
 [[ "$run_id" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ && "$cap" =~ ^[1-9][0-9]*$ ]] || exit 2
 [[ -x "$runtime/.venv/bin/python" ]] || { echo 'runtime checkout needs its locked .venv' >&2; exit 2; }
+exec 9>"$output/.execution.lock"
+flock -n 9 || { echo 'another execution owns this output directory' >&2; exit 2; }
+cidfile="$output/.container-$$.cid"
+cleanup() {
+  if [[ -s "$cidfile" ]]; then
+    cid=$(cat "$cidfile")
+    if [[ "$cid" =~ ^[a-f0-9]{64}$ ]]; then
+      docker rm --force "$cid" >/dev/null 2>&1 || true
+    fi
+  fi
+}
+trap cleanup EXIT
 repo=$(git -C "$(dirname "$0")" rev-parse --show-toplevel)
 uv_python=${ALASKA2_UV_PYTHON_ROOT:-$HOME/.local/share/uv/python}
 # No new image build or downloads; retain the matching locked runtime as read-only mounts.
-timeout --kill-after=60 "$cap" docker run --rm --gpus all --network none --cpus 6 --memory 24g --shm-size 2g --pids-limit 512 \
+timeout --kill-after=60 "$cap" docker run --rm --init --cidfile "$cidfile" --gpus all --network none --cpus 6 --memory 24g --shm-size 2g --pids-limit 512 \
   --user "$(id -u):$(id -g)" --env PYTHONPATH=/workspace/src:/workspace --env OMP_NUM_THREADS=2 \
   --env MKL_NUM_THREADS=2 --env POLARS_MAX_THREADS=4 --env "ALASKA2_PYTHON=$runtime/.venv/bin/python" \
   --env "ALASKA2_RUN_ID=$run_id" --workdir /workspace \
