@@ -29,6 +29,7 @@ def validated_predictions(path: Path, checkpoint: Path, expected: pl.DataFrame) 
     path, checkpoint = Path(path), Path(checkpoint)
     meta = json.loads(path.with_suffix(".json").read_text())
     verification = json.loads(path.with_name(path.stem + ".verify.json").read_text())
+    prediction_sha, checkpoint_sha = sha256_file(path), sha256_file(checkpoint)
     raw = load_checkpoint(checkpoint)
     if meta.get("classes") != list(CLASSES) or raw.get("classes") != list(CLASSES):
         raise ValueError("class columns/order differ from the model contract")
@@ -41,8 +42,8 @@ def validated_predictions(path: Path, checkpoint: Path, expected: pl.DataFrame) 
     if any(value != raw["identities"].get(key) for key, value in identities.items()):
         raise ValueError("prediction population/input/split identity differs from the checkpoint")
     actual = {
-        "predictions_sha256": sha256_file(path),
-        "checkpoint_sha256": sha256_file(checkpoint),
+        "predictions_sha256": prediction_sha,
+        "checkpoint_sha256": checkpoint_sha,
         "model_sha256": state_dict_sha256(raw["model"]),
     }
     if any(meta.get(key) != value or verification.get(key) != value for key, value in actual.items()):

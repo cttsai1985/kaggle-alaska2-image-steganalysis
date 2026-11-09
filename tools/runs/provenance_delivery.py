@@ -151,7 +151,7 @@ def main() -> None:
         },
         "submission": export["submission"],
         "composition": "single_verified_model",
-        "ensemble_arithmetic": "mean arithmetic verified on synthetic fixtures; no real ensemble gain claimed",
+        "ensemble_arithmetic": "mean arithmetic checked on synthetic fixtures; no real ensemble gain claimed",
         "legacy_audit": {
             "baseline_blob_sha": baseline_blob,
             "unchanged": True,
