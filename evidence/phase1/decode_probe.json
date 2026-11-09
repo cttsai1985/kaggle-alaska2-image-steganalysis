@@ -1,0 +1,112 @@
+{
+  "backends": {
+    "opencv": {
+      "available": true,
+      "runs": [
+        {
+          "images": 2000,
+          "images_per_s": 491.0,
+          "pixels_checked": 524288000,
+          "wall_s": 4.073,
+          "workers": 1
+        },
+        {
+          "images": 2000,
+          "images_per_s": 899.0,
+          "pixels_checked": 524288000,
+          "wall_s": 2.225,
+          "workers": 4
+        },
+        {
+          "images": 2000,
+          "images_per_s": 1348.6,
+          "pixels_checked": 524288000,
+          "wall_s": 1.483,
+          "workers": 8
+        },
+        {
+          "images": 2000,
+          "images_per_s": 1212.9,
+          "pixels_checked": 524288000,
+          "wall_s": 1.649,
+          "workers": 16
+        }
+      ]
+    },
+    "pillow": {
+      "available": true,
+      "runs": [
+        {
+          "images": 2000,
+          "images_per_s": 191.7,
+          "pixels_checked": 524288000,
+          "wall_s": 10.43,
+          "workers": 1
+        },
+        {
+          "images": 2000,
+          "images_per_s": 630.8,
+          "pixels_checked": 524288000,
+          "wall_s": 3.17,
+          "workers": 4
+        },
+        {
+          "images": 2000,
+          "images_per_s": 953.2,
+          "pixels_checked": 524288000,
+          "wall_s": 2.098,
+          "workers": 8
+        },
+        {
+          "images": 2000,
+          "images_per_s": 1057.9,
+          "pixels_checked": 524288000,
+          "wall_s": 1.891,
+          "workers": 16
+        }
+      ]
+    }
+  },
+  "captured_at_utc": "2026-11-09T16:33:21Z",
+  "cpu_threads_visible": 36,
+  "decode": "full decode to HxWx3 uint8 (Pillow convert('RGB'); OpenCV imread BGR); 1 thread/process",
+  "io_pressure_at_end": "some avg10=2.05 avg60=15.26 avg300=27.35 total=22023449336",
+  "load_avg_1m_at_end": 56.5,
+  "probe": "phase1_cpu_jpeg_decode",
+  "read_probe": {
+    "io_pressure_before": "some avg10=20.73 avg60=23.76 avg300=30.23 total=22020787054",
+    "note": "disjoint sample per thread count; 1st pass may be partly cached, 2nd is cached",
+    "runs": [
+      {
+        "files": 1000,
+        "first_pass_files_per_s": 100.7,
+        "first_pass_mb_per_s": 10.5,
+        "second_pass_files_per_s": 8287.9,
+        "second_pass_mb_per_s": 862.0,
+        "threads": 1
+      },
+      {
+        "files": 1000,
+        "first_pass_files_per_s": 4050.3,
+        "first_pass_mb_per_s": 403.7,
+        "second_pass_files_per_s": 4899.0,
+        "second_pass_mb_per_s": 488.3,
+        "threads": 16
+      }
+    ]
+  },
+  "sample": {
+    "bytes": 207160579,
+    "first_read_mb_per_s": 1265.3,
+    "first_read_s": 0.156,
+    "kind_balanced": true,
+    "n_images": 2000,
+    "note": "first read may already be page-cached after extraction; decode timings are warm-cache",
+    "seed": 20261109
+  },
+  "versions": {
+    "numpy": "2.5.4",
+    "opencv": "5.0.0",
+    "pillow": "13.0.0"
+  }
+}

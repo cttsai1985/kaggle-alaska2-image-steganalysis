@@ -1,0 +1,85 @@
+{
+  "attempts": [
+    {
+      "at_utc": "2026-11-09T16:43:52Z",
+      "decision": "NO-GO",
+      "failing": [
+        "cpu_free_threads",
+        "cpu_psi_some_avg60"
+      ]
+    },
+    {
+      "at_utc": "2026-11-09T16:45:07Z",
+      "decision": "NO-GO",
+      "failing": [
+        "cpu_free_threads",
+        "cpu_psi_some_avg60",
+        "io_psi_full_avg60"
+      ]
+    }
+  ],
+  "final": {
+    "checks": {
+      "cpu_free_threads": {
+        "limit": ">= 16.0",
+        "pass": false,
+        "value": 5.28
+      },
+      "cpu_psi_some_avg60": {
+        "limit": "<= 10.0",
+        "pass": false,
+        "value": 10.05
+      },
+      "disk_free_gib_data_dir_fs": {
+        "limit": ">= 45.0",
+        "pass": true,
+        "value": 122.4
+      },
+      "disk_free_gib_root_fs": {
+        "limit": ">= 45.0",
+        "pass": true,
+        "value": 122.4
+      },
+      "gpu_other_used_mib": {
+        "limit": "<= 2048",
+        "pass": true,
+        "value": 893
+      },
+      "gpu_util_pct": {
+        "limit": "<= 20",
+        "pass": true,
+        "value": 2
+      },
+      "io_psi_full_avg60": {
+        "limit": "<= 10.0",
+        "pass": false,
+        "value": 16.15
+      },
+      "io_psi_some_avg60": {
+        "limit": "<= 20.0",
+        "pass": true,
+        "value": 19.28
+      }
+    },
+    "decision": "NO-GO",
+    "failing": [
+      "cpu_free_threads",
+      "cpu_psi_some_avg60",
+      "io_psi_full_avg60"
+    ]
+  },
+  "gate": "launch_occupancy_gate",
+  "label": "phase1-review-snapshot",
+  "redaction": "aggregate host readings only; no PIDs, process names, env vars or identities",
+  "thresholds": {
+    "cpu_free_threads_min": 16.0,
+    "cpu_psi_some_avg60_max": 10.0,
+    "disk_floor_gib": 40.0,
+    "gpu_other_used_mib_max": 2048,
+    "gpu_util_pct_max": 20,
+    "io_psi_full_avg60_max": 10.0,
+    "io_psi_some_avg60_max": 20.0,
+    "run_output_gib": 5.0
+  },
+  "waited_s": 75.1
+}

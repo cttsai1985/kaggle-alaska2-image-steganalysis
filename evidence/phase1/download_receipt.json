@@ -1,0 +1,41 @@
+{
+  "download_exit": 0,
+  "extract": {
+    "ended_utc": "2026-11-09T16:17:29Z",
+    "exit": 0,
+    "started_utc": "2026-11-09T16:08:02Z",
+    "tool": "unzip -q -n"
+  },
+  "extracted_vs_zip_listing": {
+    "disk_bytes": 32267099326,
+    "disk_files": 305001,
+    "exact_match": true,
+    "extra_on_disk": 0,
+    "missing_on_disk": 0,
+    "size_mismatch": 0,
+    "zip_bytes": 32267099326,
+    "zip_files": 305001
+  },
+  "kaggle_reported_size_bytes": 32203919104,
+  "quality_csv": {
+    "rows": 305000,
+    "source": "kaggle datasets download cttsai/alaska2-image-steganalysis-image-quality"
+  },
+  "receipt": "phase1_raw_download_and_extraction",
+  "source": "kaggle competitions download alaska2-image-steganalysis (CLI 2.2.5, launched before this session; download.log ends exit=0)",
+  "zip_bytes": 32203919104,
+  "zip_members": 305001,
+  "zip_members_per_top_level": {
+    "<root>": 1,
+    "Cover": 75000,
+    "JMiPOD": 75000,
+    "JUNIWARD": 75000,
+    "Test": 5000,
+    "UERD": 75000
+  },
+  "zip_retention": "deleted after exact count+bytes match and CRC-checked extraction",
+  "zip_sha256": "34022f655637be63fb32a7ea63cca4d44cbd1286e049f9f0bb90d106a85c6b20",
+  "zip_testzip_first_bad_member": null,
+  "zip_uncompressed_bytes": 32267099326,
+  "zip_unsafe_member_paths": 0
+}

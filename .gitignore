@@ -127,3 +127,8 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# ALASKA2 data and run outputs stay outside Git
+input/
+outputs/
+*.parquet
