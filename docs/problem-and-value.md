@@ -2,7 +2,7 @@
 
 The task is to assign a probability that a JPEG contains embedded data. An image's visible subject is not the target: unchanged Cover images and their stego variants share the same source content. The [competition](https://www.kaggle.com/c/alaska2-image-steganalysis) supplies examples from JMiPOD, JUNIWARD and UERD.
 
-A possible use is to prioritize files for a trained analyst's review. A probability could order a queue; it would not by itself identify a hidden message, recover its contents or establish wrongdoing. This repository evaluates the competition workload and has not measured an operational review benefit.
+A possible use is to prioritize files for a trained analyst's review. A probability could order a queue; confirming embedded content would require separate analysis. This repository evaluates the competition workload and has not measured an operational review benefit.
 
 ## What would establish usefulness?
 

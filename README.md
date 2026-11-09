@@ -1,6 +1,6 @@
 # ALASKA2: Detecting Hidden Data in Images
 
-An image can look ordinary while carrying an embedded message. The [ALASKA2 challenge](https://www.kaggle.com/c/alaska2-image-steganalysis) asks a model to distinguish an unchanged JPEG from versions produced by different steganography methods. This solution uses an ImageNet-pretrained EfficientNet with a shared classification head and source-image-family validation.
+An image can look ordinary while carrying an embedded message. The [ALASKA2 challenge](https://www.kaggle.com/c/alaska2-image-steganalysis) asks a model to distinguish an unchanged JPEG from versions produced by different steganography methods. This solution uses an ImageNet-pretrained EfficientNet and keeps every source image’s variants together during validation.
 
 The first finding concerns the evaluation unit. **MEASURED:** a diagnostic split of individual files puts siblings of **59,460 of 60,000 validation images** in training. The original solution already avoided that boundary mistake by splitting source images before expanding their variants. The maintained pipeline preserves that design and also checks byte-identical images across families. This is evidence about split integrity, not a measured increase in model accuracy.
 
