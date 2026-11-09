@@ -368,8 +368,18 @@ def test_sigterm_wall_clock_cap_closes_manifest_as_interrupted(fixture_data, tmp
         "--run-dir",
         str(run),
     ]
+    env = {
+        **os.environ,
+        "CUDA_VISIBLE_DEVICES": "",
+    }  # fixture is CPU-only: never open a context on the shared GPU
     proc = subprocess.Popen(
-        cmd, cwd=repo, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, start_new_session=True
+        cmd,
+        cwd=repo,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+        env=env,
     )
     deadline = time.monotonic() + 120
     while time.monotonic() < deadline:  # wait until training has started and written one epoch
