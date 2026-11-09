@@ -1,0 +1,169 @@
+{
+  "client_source": {
+    "dirty": false,
+    "git_sha": "f1c1d8566e24a81b37513eb7aefb5e73d458e940",
+    "package_sha256": "10c10f3f0051a63d3f6e98bf992e7d9cb777400afd9ac007305d37c5d9b6d46c"
+  },
+  "composition": "single_verified_model",
+  "coverage": {
+    "all_validation_rows_heldout_by_producer": true,
+    "full_oof": false,
+    "heldout_rows": 60000,
+    "kind": "single_holdout",
+    "labeled_rows": 300000,
+    "producing_fold": 1
+  },
+  "delivery": {
+    "attempt": 1,
+    "experiment_id": "alaska2-8de7f4f3077df3deebf75e8bd9fb5b1906c5f1adf533e01a85fff237fa6a4bce",
+    "manifest_sha256": "0bcf6a9bdf9d803884f57c16a7df77bbf9b29e9ec520a4d86e83d29a49d8ad65",
+    "reused": false,
+    "state": "delivered",
+    "transport": "filesystem",
+    "verified_files": 10
+  },
+  "drill_label": "CONTROLLED_REAL_MODEL_FILESYSTEM_TRANSFER_DRILL",
+  "ensemble_arithmetic": "mean arithmetic checked on synthetic fixtures; no real ensemble gain claimed",
+  "kind": "prediction_provenance_and_delivery",
+  "learned_stacking": "deferred: no leakage-safe full OOF matrix or separate meta-model assessment",
+  "legacy_audit": {
+    "baseline_blob_sha": "565b19f44d427dd63e46343ea4c561e221c67866",
+    "cached_predictions": "not supplied; OOF provenance unverified",
+    "findings": [
+      "generate_stacking_data_split concatenates cached frames without producing-fold/model proofs",
+      "run_stacker can fit and score on the same validation rows",
+      "cached filename architecture/score fragments do not establish OOF status"
+    ],
+    "unchanged": true
+  },
+  "limits": [
+    "filesystem destination verified; no MLflow/S3 transfer claimed",
+    "single labeled holdout, not full OOF or cross-validation",
+    "CSV generated locally; no Kaggle submission"
+  ],
+  "measurement_status": "MEASURED",
+  "offline_bundle": {
+    "experiment_id": "alaska2-8de7f4f3077df3deebf75e8bd9fb5b1906c5f1adf533e01a85fff237fa6a4bce",
+    "files": 10,
+    "verified": true
+  },
+  "platform_contract_proposal": {
+    "artifact_namespace": "kaggle/alaska2",
+    "experiment_name": "kaggle/alaska2"
+  },
+  "platform_namespace_created": false,
+  "quality_gate_drill": {
+    "evaluation_retained": true,
+    "experiment_id": "alaska2-8de7f4f3077df3deebf75e8bd9fb5b1906c5f1adf533e01a85fff237fa6a4bce",
+    "manifest_sha256": "0bcf6a9bdf9d803884f57c16a7df77bbf9b29e9ec520a4d86e83d29a49d8ad65",
+    "next_action": "model/policy decision; not a dependency retry",
+    "state": "quality_rejected",
+    "transport": "filesystem"
+  },
+  "remote_service_verified": false,
+  "result_label": "INCOMPLETE_REAL_DATA_BASELINE",
+  "submission": {
+    "id_order_verified": true,
+    "kaggle_submission": false,
+    "rows": 5000,
+    "sample_sha256": "e16c82f3d21e3ee69921d72b20100ddbcf4d699cbd49b3bc7ccbb1907214be25",
+    "schema": [
+      "Id",
+      "Label"
+    ],
+    "submission_sha256": "8bb387eece20b600138a8d0523bc95b178b1151ae42b85cca865aec18185d69e"
+  },
+  "test_source": {
+    "checkpoint_epoch": 4,
+    "checkpoint_sha256": "d1bfaf93ffaf652ceada5dc8c8905024218c057ebaa063351564aacfa75864f7",
+    "classes": [
+      "Cover",
+      "JMiPOD",
+      "JUNIWARD",
+      "UERD"
+    ],
+    "held_out": false,
+    "identities": {
+      "input_manifest_sha256": "ab90caf00e5b21bde712cbb0fccd9aa5a6a1d41dff743934f186ae0806f5c274",
+      "population_sha256": "95a76c39327b59cbcbe686ec557699a5a877891bcc22057a1837efaa6bb16a7d",
+      "split_folds_sha256": "7260e8bdb592cdd970d4cddace4321e68e8e1c81a085ab1ac7b223ca627b8d02"
+    },
+    "model_sha256": "45dd6e1ca794a143545ce6a2e24ac682f92c466d54b3bead2dab5b431f75acfa",
+    "predictions_sha256": "3ce96470ef22155317b5bb3f0773ea2ccfcee08f6a3325b07b73b4f0d9aa0a52",
+    "producing_fold": 1,
+    "purpose": "baseline",
+    "rows": 5000,
+    "split": "test",
+    "training_complete": false
+  },
+  "transfer_drills": [
+    {
+      "fault": "after_copy",
+      "fault_active": true,
+      "recovered": {
+        "attempt": 2,
+        "experiment_id": "alaska2-8de7f4f3077df3deebf75e8bd9fb5b1906c5f1adf533e01a85fff237fa6a4bce",
+        "manifest_sha256": "0bcf6a9bdf9d803884f57c16a7df77bbf9b29e9ec520a4d86e83d29a49d8ad65",
+        "reused": false,
+        "state": "delivered",
+        "transport": "filesystem",
+        "verified_files": 10
+      },
+      "recovery_required": true,
+      "source_bundle_unchanged": true
+    },
+    {
+      "fault": "corrupt_copy",
+      "fault_active": true,
+      "recovered": {
+        "attempt": 2,
+        "experiment_id": "alaska2-8de7f4f3077df3deebf75e8bd9fb5b1906c5f1adf533e01a85fff237fa6a4bce",
+        "manifest_sha256": "0bcf6a9bdf9d803884f57c16a7df77bbf9b29e9ec520a4d86e83d29a49d8ad65",
+        "reused": false,
+        "state": "delivered",
+        "transport": "filesystem",
+        "verified_files": 10
+      },
+      "recovery_required": true,
+      "source_bundle_unchanged": true
+    },
+    {
+      "fault": "after_publish",
+      "fault_active": true,
+      "recovered": {
+        "attempt": 2,
+        "experiment_id": "alaska2-8de7f4f3077df3deebf75e8bd9fb5b1906c5f1adf533e01a85fff237fa6a4bce",
+        "manifest_sha256": "0bcf6a9bdf9d803884f57c16a7df77bbf9b29e9ec520a4d86e83d29a49d8ad65",
+        "reused": false,
+        "state": "delivered",
+        "transport": "filesystem",
+        "verified_files": 10
+      },
+      "recovery_required": true,
+      "source_bundle_unchanged": true
+    }
+  ],
+  "validation_source": {
+    "checkpoint_epoch": 4,
+    "checkpoint_sha256": "d1bfaf93ffaf652ceada5dc8c8905024218c057ebaa063351564aacfa75864f7",
+    "classes": [
+      "Cover",
+      "JMiPOD",
+      "JUNIWARD",
+      "UERD"
+    ],
+    "held_out": true,
+    "identities": {
+      "input_manifest_sha256": "ab90caf00e5b21bde712cbb0fccd9aa5a6a1d41dff743934f186ae0806f5c274",
+      "population_sha256": "95a76c39327b59cbcbe686ec557699a5a877891bcc22057a1837efaa6bb16a7d",
+      "split_folds_sha256": "7260e8bdb592cdd970d4cddace4321e68e8e1c81a085ab1ac7b223ca627b8d02"
+    },
+    "model_sha256": "45dd6e1ca794a143545ce6a2e24ac682f92c466d54b3bead2dab5b431f75acfa",
+    "predictions_sha256": "1ca5c151843d039fde53e416d0458463062aa5735a7018ccf031a5f9b91de2c0",
+    "producing_fold": 1,
+    "purpose": "baseline",
+    "rows": 60000,
+    "split": "valid",
+    "training_complete": false
+  }
+}

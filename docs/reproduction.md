@@ -100,3 +100,29 @@ uv run --locked python -m tools.runs.retained_receipt \
 ```
 
 The collector requires baseline purpose, exact source/checkpoint/prediction/population identities, current independent verification, checkpoint-defined tolerances and agreement of the analysis with canonical metrics. It never promotes fixture/smoke evidence to a real-model result.
+
+## Export verified test predictions
+
+```bash
+uv run --locked python -m alaska2 export \
+  --predictions /path/to/test_epoch004.parquet --checkpoint /path/to/checkpoints/last.pt \
+  --sample /path/to/raw/extracted/sample_submission.csv --out /path/to/output/submission.csv
+```
+
+The output must be CSV. Export rejects aliases of the sample or producing artifacts, conflicting output/receipt data and stale verification. The adjacent JSON receipt retains the source model and incomplete-training label. Supplying multiple prediction/checkpoint pairs applies a predeclared equal probability mean only when all sources meet the same provenance/population contract. No learned stacker or upload is implicit.
+
+## Package and recover an offline handoff
+
+`python -m alaska2 bundle --identity IDENTITY.json --files FILES.json --out BUNDLE_DIR` accepts an explicit scientific-identity JSON and a map of safe bundle-relative names to private source files. It verifies all copied bytes; raw images and checkpoint contents never enter Git.
+
+```bash
+uv run --locked python -m alaska2 deliver --bundle /path/to/bundle \
+  --destination /path/to/destination --state /path/to/local-events
+# After an incomplete importer has stopped:
+uv run --locked python -m alaska2 deliver --bundle /path/to/bundle \
+  --destination /path/to/destination --state /path/to/local-events --recover
+```
+
+The destination owns the claim and authoritative ledger; changing `--state` cannot change ownership. Recovery never kills another importer or retrains the model. It preserves failed attempts and verifies destination bytes before completion. The backend shown here is filesystem, not a claim of remote-service execution.
+
+The [real-model drill driver](../tools/runs/provenance_delivery.py) reproduces export, source audit, packaging and the controlled failure/recovery evidence from the original run and saved prediction directory. Give it private paths through `--data-root`, `--run-dir`, `--predictions-dir`, `--out-dir` and a redacted aggregate `--public-receipt`. Repeating a completed drill verifies and reuses it. [Consumer contract and limits](consumer-contract.md).
