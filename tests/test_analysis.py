@@ -74,3 +74,10 @@ def test_operating_points_on_a_known_roc():
     assert pts["fpr_at_tpr"]["0.4"] == pytest.approx(0.0)
     assert pts["fpr_at_tpr"]["0.8"] == pytest.approx(1 / 3)
     assert pts["tpr_at_fpr"]["0.1"] == pytest.approx(2 / 3)
+
+
+def test_chance_reference_equals_the_metric_on_tied_scores():
+    from tools.analysis.holdout_analysis import CHANCE_WEIGHTED_AUC
+
+    y = np.array([0, 1] * 50)
+    assert weighted_auc(y, np.zeros(100)) == pytest.approx(CHANCE_WEIGHTED_AUC, abs=1e-12)

@@ -32,6 +32,9 @@ from alaska2.metrics import binary_target, plain_auc, roc_vertices, weighted_auc
 
 LEGACY_METRIC = Path(__file__).resolve().parents[2] / "legacy" / "alaska_utils" / "eval_metrics.py"
 FPR_POINTS = (0.001, 0.01, 0.05, 0.1)
+# Diagonal (chance / all-tied) ROC under the competition definition: band areas 0.32 and 0.18.
+CHANCE_BAND_CONTRIBUTION = (2 * 0.32 / 1.4, 1 * 0.18 / 1.4)
+CHANCE_WEIGHTED_AUC = sum(CHANCE_BAND_CONTRIBUTION)  # 0.5857, not 0.5
 TPR_POINTS = (0.4, 0.8, 0.9)
 
 
@@ -81,6 +84,11 @@ def summary(df: pl.DataFrame, with_points: bool = False) -> dict:
         auc=plain_auc(y, s),
         band_area=parts["band_area"],
         band_contribution=parts["band_contribution"],
+        band_lift_over_chance=[
+            c - k for c, k in zip(parts["band_contribution"], CHANCE_BAND_CONTRIBUTION, strict=True)
+        ],
+        weighted_auc_lift_over_chance=parts["weighted_auc"] - CHANCE_WEIGHTED_AUC,
+        auc_lift_over_chance=plain_auc(y, s) - 0.5,
         band_shortfall=[
             h * w / 1.4 - c
             for h, w, c in zip(parts["band_height"], (2.0, 1.0), parts["band_contribution"], strict=True)
@@ -161,6 +169,14 @@ def plots(df: pl.DataFrame, out_dir: Path, label: str) -> list[str]:
         if not logx:
             ax.axhspan(0, 0.4, color="#d62728", alpha=0.08, label="TPR [0, 0.4]: weight 2")
             ax.axhspan(0.4, 1, color="#7f7f7f", alpha=0.06, label="TPR [0.4, 1]: weight 1")
+            ax.plot(
+                [0, 1],
+                [0, 1],
+                color="#999999",
+                lw=0.8,
+                ls=":",
+                label=f"chance (wAUC {CHANCE_WEIGHTED_AUC:.4f})",
+            )
         for name, part in cohorts:
             fpr, tpr = roc_vertices(binary_target(part["label"].to_numpy()), part["score"].to_numpy())
             wa = weighted_auc_parts(binary_target(part["label"].to_numpy()), part["score"].to_numpy())
@@ -201,6 +217,16 @@ def plots(df: pl.DataFrame, out_dir: Path, label: str) -> list[str]:
     c1 = [r[1]["band_contribution"][1] for r in rows]
     ax.bar(x, c0, color="#d62728", alpha=0.75, label="TPR [0, 0.4] contribution (max 0.571)")
     ax.bar(x, c1, bottom=c0, color="#7f7f7f", alpha=0.75, label="TPR [0.4, 1] contribution (max 0.429)")
+    ax.axhline(
+        CHANCE_WEIGHTED_AUC,
+        color="black",
+        lw=1,
+        ls=":",
+        label=f"chance (diagonal ROC) {CHANCE_WEIGHTED_AUC:.4f}",
+    )
+    ax.axhline(
+        CHANCE_BAND_CONTRIBUTION[0], color="#d62728", lw=0.8, ls=":", label="chance, TPR [0, 0.4] band"
+    )
     ax.set_xticks(x, [r[0] for r in rows], fontsize=7)
     ax.set_ylim(0, 1)
     ax.set_ylabel("weighted AUC (stacked band contributions)")
@@ -266,6 +292,9 @@ def analyse(pred_path: Path, out_dir: Path, n_boot: int, seed: int, make_plots: 
             "weights": [2, 1],
             "normalization": 1.4,
             "max_band_contribution": [0.8 / 1.4, 0.6 / 1.4],
+            "chance_band_contribution": list(CHANCE_BAND_CONTRIBUTION),
+            "chance_weighted_auc": CHANCE_WEIGHTED_AUC,
+            "chance_auc": 0.5,
             "score": "1 - p_Cover",
         },
         "pooled": pooled,
