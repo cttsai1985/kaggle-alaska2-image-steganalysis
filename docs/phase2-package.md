@@ -1,5 +1,7 @@
 # Phase 2, part A — modern package, legacy preservation and CPU evaluation contracts
 
+This is the historical part-A implementation report. The later smoke and interrupted baseline are summarized in [current results](results.md); part-A statements such as “not measured yet” describe that earlier checkpoint, not the current project status.
+
 Issue: #3 (parent #1). Builds on phase 1 (#2, PR #6). **No GPU training was run in this part.** The only GPU
 use was a one-batch bf16 forward/backward availability check (`evidence/phase2/cuda_check.json`). The CUDA
 smoke and the bounded real-data baseline are part B. Each one starts only after a fresh
