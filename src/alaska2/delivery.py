@@ -53,7 +53,7 @@ def _member(root: Path, name: str) -> Path:
 
 
 @contextmanager
-def _claim(path: Path):
+def artifact_claim(path: Path):
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.is_symlink():
         raise ValueError("claim file cannot be a symlink")
@@ -117,7 +117,7 @@ def create_bundle(identity: dict, files: dict[str, Path], destination: Path) -> 
         "identity": identity,
         "files": members,
     }
-    with _claim(destination / ".bundle.lock"):
+    with artifact_claim(destination / ".bundle.lock"):
         owner = _member(destination, ".bundle-owner.json")
         if not owner.exists() and any(
             item.name not in {".bundle.lock", ".bundle-owner.partial"} for item in destination.iterdir()
@@ -146,6 +146,14 @@ def create_bundle(identity: dict, files: dict[str, Path], destination: Path) -> 
         temporary.replace(destination / "manifest.json")
     verify_bundle(destination)
     return destination
+
+
+def _record(state: Path, result: dict) -> dict:
+    state.mkdir(parents=True, exist_ok=True)
+    journal = _member(state, result["experiment_id"] + ".events.jsonl")
+    with journal.open("a", encoding="utf-8") as stream:
+        stream.write(_text(result))
+    return result
 
 
 def _published(target: Path, manifest: dict, manifest_sha: str) -> dict:
@@ -179,15 +187,23 @@ def deliver(
     manifest = verify_bundle(bundle)
     experiment = manifest["experiment_id"]
     result = {"experiment_id": experiment, "transport": "filesystem", "manifest_sha256": _digest(manifest)}
+    _record(state, {**result, "state": "requested", "recover": recover, "fault": fault})
     if not quality_accepted:
-        return {
-            **result,
-            "state": "quality_rejected",
-            "evaluation_retained": True,
-            "next_action": "model/policy decision; not a dependency retry",
-        }
-    with _claim(state / f"{experiment}.lock"):
-        db = sqlite3.connect(_member(state, f"{experiment}.sqlite3"))
+        return _record(
+            state,
+            {
+                **result,
+                "state": "quality_rejected",
+                "evaluation_retained": True,
+                "next_action": "model/policy decision; not a dependency retry",
+            },
+        )
+    target = _member(destination, experiment)
+    with artifact_claim(target / ".delivery.lock"):
+        database = _member(target, ".delivery.sqlite3")
+        if not database.exists() and any(item.name != ".delivery.lock" for item in target.iterdir()):
+            raise DeliveryError("unowned destination has no authoritative identity ledger")
+        db = sqlite3.connect(database)
         try:
             db.execute(
                 "CREATE TABLE IF NOT EXISTS experiment (id TEXT PRIMARY KEY, "
@@ -202,7 +218,6 @@ def deliver(
             ).fetchone()
             if row and (row[0] != result["manifest_sha256"] or row[1] != target_hash):
                 raise DeliveryError("conflicting manifest or destination for the same logical experiment")
-            target = _member(destination, experiment)
             if row and row[2] == "delivered":
                 try:
                     _published(target, manifest, result["manifest_sha256"])
@@ -210,13 +225,16 @@ def deliver(
                     if not recover:
                         raise
                 else:
-                    return {
-                        **result,
-                        "state": "delivered",
-                        "attempt": row[3],
-                        "reused": True,
-                        "verified_files": len(manifest["files"]),
-                    }
+                    return _record(
+                        state,
+                        {
+                            **result,
+                            "state": "delivered",
+                            "attempt": row[3],
+                            "reused": True,
+                            "verified_files": len(manifest["files"]),
+                        },
+                    )
             if row and not recover:
                 raise RecoveryRequired("previous importer stopped incomplete; explicit recovery required")
             attempt = db.execute("INSERT INTO attempts(status) VALUES ('running')").lastrowid
@@ -248,19 +266,23 @@ def deliver(
                 db.execute("UPDATE attempts SET status='delivered' WHERE id=?", (attempt,))
                 db.execute("UPDATE experiment SET status='delivered' WHERE id=?", (experiment,))
                 db.commit()
-                return {
-                    **result,
-                    "state": "delivered",
-                    "attempt": attempt,
-                    "reused": False,
-                    "verified_files": len(manifest["files"]),
-                }
+                return _record(
+                    state,
+                    {
+                        **result,
+                        "state": "delivered",
+                        "attempt": attempt,
+                        "reused": False,
+                        "verified_files": len(manifest["files"]),
+                    },
+                )
             except Exception as exc:
                 db.execute(
                     "UPDATE attempts SET status='failed',error=? WHERE id=?", (type(exc).__name__, attempt)
                 )
                 db.execute("UPDATE experiment SET status='failed' WHERE id=?", (experiment,))
                 db.commit()
+                _record(state, {**result, "state": "failed", "attempt": attempt, "error": type(exc).__name__})
                 raise DeliveryError(
                     f"transfer incomplete: {type(exc).__name__}; local bundle retained"
                 ) from exc

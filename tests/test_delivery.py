@@ -122,7 +122,7 @@ d.deliver(bundle,destination,state)
             time.sleep(0.02)
         assert ready.exists(), "controlled copy was not reached"
         with pytest.raises(DeliveryError, match="active"):
-            deliver(path, tmp_path / "destination", tmp_path / "state", recover=True)
+            deliver(path, tmp_path / "destination", tmp_path / "alternate-state", recover=True)
     finally:
         proc.kill()
         proc.communicate(timeout=10)
@@ -172,3 +172,30 @@ def test_packaging_refuses_to_overwrite_unowned_data(tmp_path):
             destination,
         )
     assert existing.read_bytes() == b"operator data"
+
+
+def test_changing_local_state_cannot_replace_destination_identity(tmp_path):
+    original = bundle(tmp_path)
+    identity = verify_bundle(original)["identity"]
+    other_source = tmp_path / "other.bin"
+    other_source.write_bytes(b"different model artifact")
+    conflicting = create_bundle(identity, {"models/model.bin": other_source}, tmp_path / "other-bundle")
+    before = deliver(original, tmp_path / "destination", tmp_path / "state-a")
+    try:
+        deliver(conflicting, tmp_path / "destination", tmp_path / "state-b")
+    except DeliveryError:
+        pass
+    with pytest.raises(DeliveryError):
+        deliver(conflicting, tmp_path / "destination", tmp_path / "state-b", recover=True)
+    assert (
+        deliver(original, tmp_path / "destination", tmp_path / "state-a")["manifest_sha256"]
+        == before["manifest_sha256"]
+    )
+
+
+def test_canonical_platform_contract_is_explicit_and_pinned():
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    contract = json.loads((root / "configs/platform-contract.json").read_text())
+    assert contract == {"experiment_name": "kaggle/alaska2", "artifact_namespace": "kaggle/alaska2"}

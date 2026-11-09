@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import tempfile
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -146,6 +147,8 @@ def probability_mean(sources: Sequence[VerifiedPrediction]) -> tuple[pl.DataFram
 
 def write_submission(predictions: pl.DataFrame, sample_path: Path, output: Path) -> dict:
     """Use the actual supplied sample schema and order, with exactly one finite probability per test ID."""
+    if Path(output).suffix.lower() != ".csv":
+        raise ValueError("submission output must have a CSV extension")
     if Path(output).resolve() == Path(sample_path).resolve():
         raise ValueError("submission output cannot overwrite its authoritative sample")
     sample = pl.read_csv(sample_path, schema_overrides={"Id": pl.String})
@@ -164,12 +167,19 @@ def write_submission(predictions: pl.DataFrame, sample_path: Path, output: Path)
         maintain_order="left",
     )
     output.parent.mkdir(parents=True, exist_ok=True)
-    ordered.write_csv(output)
-    saved = pl.read_csv(output, schema_overrides={"Id": pl.String})
-    if saved["Id"].to_list() != sample["Id"].to_list() or not np.array_equal(
-        saved["Label"].to_numpy(), ordered["Label"].to_numpy()
-    ):
-        raise ValueError("saved submission did not preserve ID order/probabilities")
+    if output.is_symlink():
+        raise ValueError("submission output cannot be a symlink")
+    with tempfile.TemporaryDirectory(prefix=".alaska2-export-", dir=output.parent) as temporary:
+        pending = Path(temporary) / "submission.csv"
+        ordered.write_csv(pending)
+        saved = pl.read_csv(pending, schema_overrides={"Id": pl.String})
+        if saved["Id"].to_list() != sample["Id"].to_list() or not np.array_equal(
+            saved["Label"].to_numpy(), ordered["Label"].to_numpy()
+        ):
+            raise ValueError("saved submission did not preserve ID order/probabilities")
+        if output.exists() and sha256_file(output) != sha256_file(pending):
+            raise ValueError("submission output already contains different data; choose a fresh output")
+        pending.replace(output)
     return {
         "rows": saved.height,
         "schema": saved.columns,
@@ -195,6 +205,22 @@ def export_predictions(
 
     if not paths or len(paths) != len(checkpoints):
         raise ValueError("supply one producing checkpoint for each prediction file")
+    output, sample = Path(output), Path(sample)
+    if output.suffix.lower() != ".csv":
+        raise ValueError("export output must have a CSV extension")
+    protected = {sample.resolve(), *(Path(path).resolve() for path in checkpoints)}
+    for path in paths:
+        path = Path(path)
+        protected.update(
+            [
+                path.resolve(),
+                path.with_suffix(".json").resolve(),
+                path.with_name(path.stem + ".verify.json").resolve(),
+            ]
+        )
+    receipt_path = output.with_suffix(".json")
+    if output.resolve() in protected or receipt_path.resolve() in protected:
+        raise ValueError("export output/receipt cannot overwrite a producing source artifact")
     cfg = runtime_config(load_checkpoint(checkpoints[0])["config"], {"data.root": data_root})
     expected = prepare_inputs(cfg).test
     sources = [
@@ -213,14 +239,20 @@ def export_predictions(
     label = (
         "INCOMPLETE_REAL_DATA_BASELINE" if purpose == "baseline" and not complete else PURPOSE_LABELS[purpose]
     )
-    receipt = {
-        "project_id": "alaska2",
-        "result_label": label,
-        "training_complete": complete,
-        "source_models": composition["sources"],
-        "composition": composition["algorithm"],
-        "submission": write_submission(frame, sample, output),
-        "learned_stacking": "deferred; no leakage-safe full OOF matrix has been established",
-    }
-    write_json(output.with_suffix(".json"), receipt)
-    return receipt
+    from alaska2.delivery import artifact_claim
+
+    with artifact_claim(output.with_name("." + output.name + ".lock")):
+        receipt = {
+            "project_id": "alaska2",
+            "result_label": label,
+            "training_complete": complete,
+            "source_models": composition["sources"],
+            "composition": composition["algorithm"],
+            "submission": write_submission(frame, sample, output),
+            "learned_stacking": "deferred; no leakage-safe full OOF matrix has been established",
+        }
+        if receipt_path.exists():
+            if receipt_path.is_symlink() or json.loads(receipt_path.read_text()) != receipt:
+                raise ValueError("export receipt already belongs to different source/output data")
+        write_json(receipt_path, receipt)
+        return receipt

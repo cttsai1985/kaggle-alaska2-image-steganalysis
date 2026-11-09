@@ -200,3 +200,15 @@ def test_submission_cannot_overwrite_its_sample(tmp_path):
     with pytest.raises(ValueError, match="sample"):
         write_submission(pl.DataFrame({"image": ["a.jpg"], "score": [0.2]}), sample, sample)
     assert sample.read_bytes() == original
+
+
+def test_export_requires_csv_and_preserves_producing_files(tmp_path):
+    from alaska2.composition import export_predictions
+
+    pred, checkpoint, _ = source(tmp_path, "a")
+    before = pred.read_bytes()
+    # Output validation must run before loading full input manifests or writing any producing artifact.
+    for output in [tmp_path / "result.json", pred, pred.with_suffix(".csv")]:
+        with pytest.raises(ValueError, match="CSV|source|output"):
+            export_predictions([pred], [checkpoint], tmp_path / "sample.csv", output)
+    assert pred.read_bytes() == before
