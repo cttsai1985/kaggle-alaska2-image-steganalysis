@@ -1,0 +1,106 @@
+{
+  "byte_duplicate_groups": 244,
+  "byte_duplicate_kind_patterns": {
+    "Cover+Cover": 1,
+    "Cover+JMiPOD": 8,
+    "Cover+JUNIWARD": 22,
+    "Cover+JUNIWARD+UERD": 7,
+    "Cover+UERD": 206
+  },
+  "cross_family_byte_duplicate_groups": 1,
+  "cross_family_byte_duplicate_kind_patterns": {
+    "Cover+Cover": 1
+  },
+  "cross_split_byte_duplicates": 0,
+  "dimension_mode_counts": [
+    {
+      "height": 512,
+      "mode": "RGB",
+      "n": 305000,
+      "width": 512
+    }
+  ],
+  "families_complete_4_variants": 75000,
+  "families_incomplete": 0,
+  "families_with_any_stego_identical_to_cover": 243,
+  "families_with_mixed_table_quality": 0,
+  "files_per_kind": {
+    "Cover": 75000,
+    "JMiPOD": 75000,
+    "JUNIWARD": 75000,
+    "Test": 5000,
+    "UERD": 75000
+  },
+  "files_without_quality_row": 0,
+  "join_rows_equal_files": true,
+  "manifest_content_sha256": "ab90caf00e5b21bde712cbb0fccd9aa5a6a1d41dff743934f186ae0806f5c274",
+  "n_files": 305000,
+  "non_jpeg": 0,
+  "open_errors": 0,
+  "q_from_table_counts": {
+    "75": 101667,
+    "90": 101666,
+    "95": 101667
+  },
+  "quality_by_split_kind": {
+    "test/Test/75": 1667,
+    "test/Test/90": 1666,
+    "test/Test/95": 1667,
+    "train/Cover/75": 25000,
+    "train/Cover/90": 25000,
+    "train/Cover/95": 25000,
+    "train/JMiPOD/75": 25000,
+    "train/JMiPOD/90": 25000,
+    "train/JMiPOD/95": 25000,
+    "train/JUNIWARD/75": 25000,
+    "train/JUNIWARD/90": 25000,
+    "train/JUNIWARD/95": 25000,
+    "train/UERD/75": 25000,
+    "train/UERD/90": 25000,
+    "train/UERD/95": 25000
+  },
+  "quality_csv_duplicate_keys": 0,
+  "quality_csv_present": true,
+  "quality_csv_rows": 305000,
+  "quality_csv_sha256": "c826e8f3177e2866184abf6df515ad51a9ac0f0ddf49edf0b48bbd60f21d31a8",
+  "quality_csv_vs_table_compared": 305000,
+  "quality_csv_vs_table_mismatch": 0,
+  "quality_rows_without_file": 0,
+  "sample_submission": {
+    "columns": [
+      "Id",
+      "Label"
+    ],
+    "duplicate_ids": 0,
+    "id_set_equals_test_files": true,
+    "ids_missing_from_test_files": 0,
+    "label_dtype": "Int64",
+    "label_unique_values": 1,
+    "rows": 5000,
+    "test_files_missing_from_ids": 0
+  },
+  "sample_submission_sha256": "e16c82f3d21e3ee69921d72b20100ddbcf4d699cbd49b3bc7ccbb1907214be25",
+  "stego_identical_to_own_cover": {
+    "JMiPOD": 8,
+    "JUNIWARD": 29,
+    "UERD": 213
+  },
+  "stego_identical_to_own_cover_by_kind_table_quality": {
+    "JMiPOD/75": 6,
+    "JMiPOD/90": 2,
+    "JUNIWARD/75": 29,
+    "UERD/75": 211,
+    "UERD/90": 2
+  },
+  "test_images": 5000,
+  "test_names_overlapping_train_families": 0,
+  "total_bytes": 32267044317,
+  "train_families": 75000,
+  "train_family_id_gaps_in_range": 5005,
+  "train_family_id_non_numeric": 0,
+  "train_family_id_range": [
+    1,
+    80005
+  ],
+  "unexpected_kinds": []
+}

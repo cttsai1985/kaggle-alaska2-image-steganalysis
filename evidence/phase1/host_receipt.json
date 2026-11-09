@@ -1,0 +1,90 @@
+{
+  "captured_at_utc": "2026-11-09T16:34:53Z",
+  "cpu": {
+    "logical_threads_visible": 36,
+    "model": "AMD Ryzen Threadripper PRO 5965WX 24-Cores"
+  },
+  "disk": {
+    "data_dir_fs": {
+      "free_gib": 129.8,
+      "total_gib": 392.7
+    },
+    "root_fs": {
+      "free_gib": 129.8,
+      "total_gib": 392.7
+    }
+  },
+  "docker": {
+    "docker_version": "Docker version 29.8.1, build 4a63305",
+    "elapsed_s": 1.4,
+    "exit_code": 0,
+    "exit_status": "exited",
+    "gpu_visible_in_container": true,
+    "gpus": [
+      "GPU 0: NVIDIA RTX A4500"
+    ],
+    "gpus_all_check_image": "nvidia/cuda:12.4.1-base-ubuntu22.04",
+    "gpus_all_ok": true
+  },
+  "gpu": {
+    "compute_process_memory_mib": [],
+    "compute_processes_visible": 0,
+    "cuda_driver_api_version": "13.2",
+    "devices": [
+      {
+        "driver_version": "595.71",
+        "index": 0,
+        "memory_free_mib": 19580,
+        "memory_total_mib": 20470,
+        "memory_used_mib": 890,
+        "name": "NVIDIA RTX A4500",
+        "utilization_gpu_pct": 2
+      }
+    ],
+    "note": "WSL2 often hides per-process GPU attribution; memory.used is the authoritative occupancy",
+    "nvidia_smi_ok": true
+  },
+  "host_label": "P620-WSL2",
+  "kaggle": {
+    "competition": "alaska2-image-steganalysis",
+    "competition_files_list_ok": true,
+    "competition_files_listing": {
+      "first_page_rows": 20,
+      "more_pages": true
+    },
+    "kaggle_cli_version": "Kaggle CLI 2.2.5",
+    "note": "file listing is paginated (first page only) and proves access, not completeness; download completeness is verified in download_receipt/dataset_audit",
+    "quality_dataset": "cttsai/alaska2-image-steganalysis-image-quality",
+    "quality_dataset_files_list_ok": true,
+    "quality_dataset_files_listing": {
+      "first_page_rows": 1,
+      "more_pages": false
+    }
+  },
+  "load": {
+    "cpu_pressure": "some avg10=29.81 avg60=30.82 avg300=16.63 total=16300565151",
+    "io_pressure": "some avg10=1.65 avg60=10.49 avg300=22.80 total=22033920947",
+    "loadavg_1_5_15": [
+      57.6,
+      50.6,
+      48.0
+    ],
+    "note": "host is shared; these are point-in-time occupancy readings"
+  },
+  "memory": {
+    "available_gib": 113.6,
+    "total_gib": 165.1
+  },
+  "os": {
+    "kernel": "6.18.54.1-microsoft-standard-WSL2",
+    "pretty_name": "Ubuntu 24.04.5 LTS",
+    "version_id": "24.04",
+    "wsl2": true
+  },
+  "receipt": "phase1_host_readiness",
+  "redaction": "no env vars, tokens, usernames, hostnames, PIDs or absolute home paths recorded",
+  "toolchain": {
+    "python": "3.12.13",
+    "uv": "uv 0.10.4"
+  }
+}

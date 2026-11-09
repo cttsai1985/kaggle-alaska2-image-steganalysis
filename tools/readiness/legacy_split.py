@@ -26,9 +26,10 @@ N_SPLITS = 5
 
 def legacy_family_folds(train: pl.DataFrame) -> pl.DataFrame:
     """train: one row per file with family_id, image, label, quality. Returns family_id -> fold (1-based)."""
-    fam = train.sort("image").unique("image", keep="first", maintain_order=True)
-    if fam.group_by("image").agg(pl.col("quality").n_unique()).filter(pl.col("quality") > 1).height:
+    # Checked on all variants *before* dedup: after dedup each image has one row and nothing can differ.
+    if train.group_by("image").agg(pl.col("quality").n_unique()).filter(pl.col("quality") > 1).height:
         raise ValueError("quality differs within a family; legacy dedup would be order-dependent")
+    fam = train.sort("image").unique("image", keep="first", maintain_order=True)
     skf = StratifiedKFold(n_splits=N_SPLITS)
     fold = np.zeros(fam.height, dtype=np.int32)
     for k, (_, valid_idx) in enumerate(skf.split(X=fam["label"].to_numpy(), y=fam["quality"].to_numpy()), 1):
@@ -50,6 +51,20 @@ def audit_folds(train: pl.DataFrame, folds: pl.DataFrame) -> dict:
     )
     out["per_fold"] = per.sort("fold").to_dicts()
     return out
+
+
+def content_linked_families(train: pl.DataFrame, folds: pl.DataFrame) -> dict:
+    """Byte-identical files under different family IDs, and whether the folds separate them."""
+    rows = train.select("family_id", "sha256").join(folds, on="family_id", how="left")
+    grp = rows.group_by("sha256").agg(
+        pl.col("family_id").n_unique().alias("n_families"), pl.col("fold").n_unique().alias("n_folds")
+    )
+    linked = grp.filter(pl.col("n_families") > 1)
+    return {
+        "byte_identical_groups_spanning_families": linked.height,
+        "of_which_split_across_folds": int((linked["n_folds"] > 1).sum()),
+        "note": "family = filename stem; identical bytes under two stems are invisible to the legacy split",
+    }
 
 
 def row_level_leak_diagnostic(train: pl.DataFrame, seed: int = 0) -> dict:
@@ -104,6 +119,7 @@ def main() -> None:
         "fold_assignment_content_sha256": folds_hash,
         "families": folds.height,
         **audit_folds(train, folds),
+        "content_linked_families": content_linked_families(train, folds),
         "row_level_diagnostic": row_level_leak_diagnostic(train),
     }
     a.audit_json.parent.mkdir(parents=True, exist_ok=True)

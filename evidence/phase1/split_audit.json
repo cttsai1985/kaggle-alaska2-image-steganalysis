@@ -1,0 +1,82 @@
+{
+  "content_linked_families": {
+    "byte_identical_groups_spanning_families": 1,
+    "note": "family = filename stem; identical bytes under two stems are invisible to the legacy split",
+    "of_which_split_across_folds": 0
+  },
+  "families": 75000,
+  "families_in_multiple_folds": 0,
+  "fold_assignment_content_sha256": "7260e8bdb592cdd970d4cddace4321e68e8e1c81a085ab1ac7b223ca627b8d02",
+  "per_fold": [
+    {
+      "Cover": 15000,
+      "JMiPOD": 15000,
+      "JUNIWARD": 15000,
+      "UERD": 15000,
+      "families": 15000,
+      "fold": 1,
+      "q75": 20000,
+      "q90": 20000,
+      "q95": 20000,
+      "rows": 60000
+    },
+    {
+      "Cover": 15000,
+      "JMiPOD": 15000,
+      "JUNIWARD": 15000,
+      "UERD": 15000,
+      "families": 15000,
+      "fold": 2,
+      "q75": 20000,
+      "q90": 20000,
+      "q95": 20000,
+      "rows": 60000
+    },
+    {
+      "Cover": 15000,
+      "JMiPOD": 15000,
+      "JUNIWARD": 15000,
+      "UERD": 15000,
+      "families": 15000,
+      "fold": 3,
+      "q75": 20000,
+      "q90": 20000,
+      "q95": 20000,
+      "rows": 60000
+    },
+    {
+      "Cover": 15000,
+      "JMiPOD": 15000,
+      "JUNIWARD": 15000,
+      "UERD": 15000,
+      "families": 15000,
+      "fold": 4,
+      "q75": 20000,
+      "q90": 20000,
+      "q95": 20000,
+      "rows": 60000
+    },
+    {
+      "Cover": 15000,
+      "JMiPOD": 15000,
+      "JUNIWARD": 15000,
+      "UERD": 15000,
+      "families": 15000,
+      "fold": 5,
+      "q75": 20000,
+      "q90": 20000,
+      "q95": 20000,
+      "rows": 60000
+    }
+  ],
+  "policy": "legacy: sort by image, dedup to base image, StratifiedKFold(5, no shuffle) on quality; groups argument ignored by StratifiedKFold; families expanded to all variants",
+  "row_level_diagnostic": {
+    "label": "DIAGNOSTIC_ONLY_row_level_split_not_an_evaluation",
+    "split": "StratifiedKFold(n_splits=5, shuffle=True, random_state=0) on label, fold 1",
+    "valid_rows": 60000,
+    "valid_rows_with_sibling_in_train": 59460,
+    "valid_stego_rows": 45000,
+    "valid_stego_rows_whose_own_cover_is_in_train": 35766
+  },
+  "rows_without_fold": 0
+}

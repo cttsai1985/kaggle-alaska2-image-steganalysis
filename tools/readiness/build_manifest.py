@@ -6,6 +6,7 @@ aggregate audit JSON is meant to be committed.
     uv run python -m tools.readiness.build_manifest \
         --data-dir ~/data/kaggle/alaska2-image-steganalysis/raw/extracted \
         --quality-csv ~/data/kaggle/alaska2-image-steganalysis/quality/image_quality.csv \
+        --sample-submission ~/data/kaggle/alaska2-image-steganalysis/raw/extracted/sample_submission.csv \
         --out-dir ~/data/kaggle/alaska2-image-steganalysis/manifest \
         --audit-json evidence/phase1/dataset_audit.json
 """
@@ -15,6 +16,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import multiprocessing as mp
 import os
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
@@ -108,12 +110,27 @@ def audit(df: pl.DataFrame, quality: pl.DataFrame | None) -> dict:
         out["train_family_id_gaps_in_range"] = (hi - lo + 1) - int(ids.n_unique())
 
     # Byte-identical files
-    dup = df.group_by("sha256").agg(pl.len().alias("n"), pl.col("kind").sort().alias("kinds"))
+    dup = df.group_by("sha256").agg(
+        pl.len().alias("n"),
+        pl.col("kind").sort().alias("kinds"),
+        pl.col("family_id").n_unique().alias("n_families"),
+    )
     dup = dup.filter(pl.col("n") > 1)
     out["byte_duplicate_groups"] = dup.height
     out["byte_duplicate_kind_patterns"] = {
-        "+".join(k): n
+        k: n
         for k, n in dup.with_columns(pl.col("kinds").list.join("+").alias("k"))
+        .group_by("k")
+        .len()
+        .sort("k")
+        .iter_rows()
+    }
+    # Identical bytes under *different* family IDs: a filename-based family split cannot see these.
+    xfam = dup.filter(pl.col("n_families") > 1)
+    out["cross_family_byte_duplicate_groups"] = xfam.height
+    out["cross_family_byte_duplicate_kind_patterns"] = {
+        k: n
+        for k, n in xfam.with_columns(pl.col("kinds").list.join("+").alias("k"))
         .group_by("k")
         .len()
         .sort("k")
@@ -129,6 +146,12 @@ def audit(df: pl.DataFrame, quality: pl.DataFrame | None) -> dict:
         .sort("kind")
         .iter_rows()
     }
+    same = stego.filter(pl.col("sha256") == pl.col("cover_sha"))
+    out["stego_identical_to_own_cover_by_kind_table_quality"] = {
+        f"{k}/{q}": n
+        for k, q, n in same.group_by("kind", "q_from_table").len().sort("kind", "q_from_table").iter_rows()
+    }
+    out["families_with_any_stego_identical_to_cover"] = int(same["family_id"].n_unique())
     out["cross_split_byte_duplicates"] = int(test["sha256"].is_in(train["sha256"].implode()).sum())
 
     # Quality from the JPEG quantization tables (independent of the CSV)
@@ -159,24 +182,50 @@ def audit(df: pl.DataFrame, quality: pl.DataFrame | None) -> dict:
     return out
 
 
+def check_sample_submission(df: pl.DataFrame, sub: pl.DataFrame) -> dict:
+    """Submission contract: columns, row count, and Id set equal to the Test file names (aggregates only)."""
+    test_names = set(df.filter(pl.col("split") == "test")["image"].to_list())
+    out: dict = {"columns": sub.columns, "rows": sub.height}
+    if "Id" in sub.columns:
+        ids = sub["Id"].cast(pl.String)
+        id_set = set(ids.to_list())
+        out["duplicate_ids"] = sub.height - len(id_set)
+        out["ids_missing_from_test_files"] = len(id_set - test_names)
+        out["test_files_missing_from_ids"] = len(test_names - id_set)
+        out["id_set_equals_test_files"] = id_set == test_names
+    if "Label" in sub.columns:
+        out["label_dtype"] = str(sub["Label"].dtype)
+        out["label_unique_values"] = int(sub["Label"].n_unique())
+    return out
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--data-dir", type=Path, required=True)
     ap.add_argument("--quality-csv", type=Path)
+    ap.add_argument("--sample-submission", type=Path)
     ap.add_argument("--out-dir", type=Path, required=True)
     ap.add_argument("--audit-json", type=Path, required=True)
     ap.add_argument("--workers", type=int, default=16)
+    ap.add_argument("--reuse-manifest", action="store_true", help="re-audit an existing manifest parquet")
     a = ap.parse_args()
 
-    rels = list_files(a.data_dir)
-    root = str(a.data_dir)
-    with ProcessPoolExecutor(max_workers=a.workers) as ex:
-        rows = list(ex.map(inspect_file, [(root, r) for r in rels], chunksize=512))
-    df = pl.DataFrame(rows, infer_schema_length=None).sort("relpath")
-
-    a.out_dir.mkdir(parents=True, exist_ok=True)
     manifest_path = a.out_dir / "files_manifest.parquet"
-    df.write_parquet(manifest_path)
+    if a.reuse_manifest:
+        # Re-audit an existing manifest; the file listing must still match it exactly.
+        df = pl.read_parquet(manifest_path).sort("relpath")
+        if df["relpath"].to_list() != list_files(a.data_dir):
+            raise SystemExit(
+                "existing manifest does not match the files on disk; rebuild without --reuse-manifest"
+            )
+    else:
+        rels = list_files(a.data_dir)
+        root = str(a.data_dir)
+        with ProcessPoolExecutor(max_workers=a.workers, mp_context=mp.get_context("forkserver")) as ex:
+            rows = list(ex.map(inspect_file, [(root, r) for r in rels], chunksize=512))
+        df = pl.DataFrame(rows, infer_schema_length=None).sort("relpath")
+        a.out_dir.mkdir(parents=True, exist_ok=True)
+        df.write_parquet(manifest_path)
     # Identity of the manifest content, independent of parquet encoding details
     content_hash = hashlib.sha256(
         "\n".join(f"{r}\t{s}" for r, s in df.select("relpath", "sha256").iter_rows()).encode()
@@ -189,6 +238,9 @@ def main() -> None:
         hashlib.sha256(a.quality_csv.read_bytes()).hexdigest() if quality is not None else None
     )
     result["quality_csv_present"] = quality is not None
+    if a.sample_submission and a.sample_submission.exists():
+        result["sample_submission"] = check_sample_submission(df, pl.read_csv(a.sample_submission))
+        result["sample_submission_sha256"] = hashlib.sha256(a.sample_submission.read_bytes()).hexdigest()
     a.audit_json.parent.mkdir(parents=True, exist_ok=True)
     a.audit_json.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
     print(json.dumps(result, indent=2, sort_keys=True))
