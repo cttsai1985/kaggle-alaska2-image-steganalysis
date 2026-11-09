@@ -1,0 +1,30 @@
+{
+  "checkpoint_sha256": "d1bfaf93ffaf652ceada5dc8c8905024218c057ebaa063351564aacfa75864f7",
+  "checks": {
+    "checkpoint_file_unchanged": true,
+    "checkpoint_sha256_matches": true,
+    "model_sha256_matches": true,
+    "prediction_file_unchanged": true,
+    "predictions_sha256_matches": true,
+    "saved_rows_match_canonical_inputs": true,
+    "score_matches_probabilities": true
+  },
+  "device": "cuda:0",
+  "evaluated_epoch": 4,
+  "kind": "verify",
+  "measurement_status": "MEASURED",
+  "model_sha256": "45dd6e1ca794a143545ce6a2e24ac682f92c466d54b3bead2dab5b431f75acfa",
+  "observed": {
+    "max_abs_logit_delta": 0.0,
+    "max_abs_prob_delta": 0.0
+  },
+  "predictions_sha256": "3ce96470ef22155317b5bb3f0773ea2ccfcee08f6a3325b07b73b4f0d9aa0a52",
+  "result_label": "INCOMPLETE_REAL_DATA_BASELINE",
+  "rows": 5000,
+  "source_result_label": "REAL_DATA_BASELINE",
+  "tolerance": {
+    "metric_atol": 0.0001,
+    "prob_atol": 0.001
+  },
+  "training_complete": false
+}

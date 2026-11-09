@@ -1,61 +1,57 @@
-# Results and remaining evidence
+# Results and evaluation limits
 
-The modern baseline has no reportable model score yet. The retained artifacts establish data/split integrity, CUDA readiness and interrupted training, with separate CPU recovery tests. They do not establish a completed baseline, a modern ensemble or a scored submission.
+The retained model has a verified real-data result: **MEASURED weighted AUC 0.83540** on the complete family holdout. It is the predeclared fallback from an interrupted training run, not the intended completed recipe. No historical or modern leaderboard score is established.
 
 ## Evaluation scope
 
-**MEASURED input snapshot:** 305,000 JPEGs: 300,000 labeled variants from 75,000 complete families, plus 5,000 test images. The retained legacy family holdout assigns 240,000 files to fitting and 60,000 to validation, with no family or byte-identical group crossing those roles. This is a single holdout, not cross-validation. [Dataset receipt](../evidence/phase1/dataset_audit.json) · [Validation receipt](../evidence/phase2/validate_real_data.json).
+**MEASURED input snapshot:** 305,000 JPEGs: 300,000 labeled variants from 75,000 complete families, plus 5,000 test images. The retained legacy family assignments use 240,000 fit files and 60,000 holdout files from 15,000 families. No family or byte-identical group crosses those roles. This is a single holdout, not cross-validation. [Input audit](../evidence/phase1/dataset_audit.json) · [Split and input validation](../evidence/phase2/validate_real_data.json).
 
-| Evidence | Status | Meaning |
+| Experiment | Scope | Result |
 | --- | --- | --- |
-| Historical leaderboard submissions | Not recovered | No public/private score or percentile is claimed. |
-| CUDA smoke and independent reload | Passed readiness check | Explicit subset; not a model result. |
-| Fixed baseline | Interrupted | Completed checkpoint retained, intended recipe incomplete. |
-| Baseline holdout metrics and ROC/quality analysis | Not available | No saved baseline predictions to analyze. |
-| Baseline checkpoint-to-prediction verification | Not available | No saved baseline predictions to reconstruct. |
-| Modern test predictions / submission / leaderboard result | Not established | The prediction command is implemented; execution is not demonstrated. |
-| Ensemble provenance and delivery recovery | Outstanding | See [issue #4](https://github.com/cttsai1985/kaggle-alaska2-image-steganalysis/issues/4). |
+| Historical submissions | Competition leaderboard | Scores and submission provenance have not been recovered. |
+| Retained EfficientNet checkpoint | Complete family holdout; incomplete training | **MEASURED weighted AUC 0.83540; ordinary AUC 0.77024**. |
+| Intended fixed-budget recipe | Declared training completion | Incomplete; no completed-recipe result is claimed. |
+| CUDA smoke | Explicit family subset | Readiness only, not the baseline result. |
+| CPU fixture | Synthetic images | Contract tests, not a model result. |
 
-The [CUDA smoke receipt](../evidence/phase2/cuda_smoke.json) contains a subset score solely to exercise the metric and reload path. It must not be substituted for the baseline or compared with historical leaderboard scores. The [failed duplicate smoke](../evidence/phase2/failed_duplicate_smoke.json) is retained as a failed attempt.
+[Verified evaluation and analysis](../evidence/phase2/retained_evaluation.json) · [Test-prediction reconstruction](../evidence/phase2/retained_test_verification.json) · [Runtime/image receipt](../evidence/phase2/retained_execution.json).
 
-## Interrupted training
+## Where the pooled score hides weakness
 
-The [baseline specification](../evidence/phase2/baseline_spec.json) declared the recipe before launch. **ESTIMATED before fitting:** the smoke-derived budget selected five epochs under a three-hour overall cap. Those projections are not measured baseline completion time.
+**MEASURED from the same retained holdout predictions:**
 
-**MEASURED from the retained run manifest:**
+| JPEG quality cohort | Files | Source families | Weighted AUC |
+| --- | ---: | ---: | ---: |
+| 75 | 20,000 | 5,000 | 0.86666 |
+| 90 | 20,000 | 5,000 | 0.84809 |
+| 95 | 20,000 | 5,000 | 0.76598 |
 
-| Item | Observed value |
-| --- | --- |
-| Declared fit population | 240,000 files |
-| Declared epochs | 5 |
-| Completed epoch records | 4 |
-| Final completed checkpoint | `checkpoints/epoch_004.pt` |
-| Latest status | `interrupted` |
-| Latest recorded error | SIGTERM, handled as `KeyboardInterrupt` |
-| Accepted continuation | From epoch 4, with matching recorded source/package/runtime provenance |
-| Saved holdout predictions | None |
-| Fresh-process baseline verification | None |
+The cohort sizes and class proportions match, so unequal denominators do not explain the score ordering. However, each family belongs to one quality cohort. Image content and acquisition conditions can differ across those cohorts; this is not a matched experiment proving a causal effect of JPEG quality.
 
-[Generated aggregate receipt](../evidence/phase2/baseline_interrupted.json). Its epoch losses describe training only and are not validation metrics. Source provenance is recorded as dirty; the receipt retains its package-content hash rather than implying a clean checkout.
+**MEASURED Cover-versus-kind weighted AUC:** JMiPOD 0.90974, JUNIWARD 0.61846, UERD 0.93095. Each comparison has 30,000 files from the same 15,000 families. The pooled score therefore should not stand in for equally effective detection of every embedding method. The decision is to retain method and quality slices alongside the pooled score, not to tune blend weights on this holdout.
 
-The transcript reports a host outage, but no dedicated outage-timing receipt or `wall.json` is present in the retained run directory. The manifest proves an accepted continuation and a later interruption. It does not by itself quantify outage duration, active compute across attempts or end-to-end budget compliance. The projected budget cannot be presented as any of those measurements.
+**MEASURED operating points:** TPR is 0.31407 at FPR 0.001 and 0.37711 at FPR 0.01. Reaching TPR 0.8 requires FPR 0.4932 in this holdout. The weighted metric's low-TPR band is nearly saturated while substantial high-TPR shortfall remains. A broad detection-quality claim would conceal that behavior.
 
-**Decision:** retain the exact recovery worktree and checkpoints; do not silently restart under newer code, extend the training budget or call the run complete. The predeclared fallback permits evaluation of the last completed checkpoint, explicitly labeled incomplete. That evaluation, its resource allowance and an independent prediction reconstruction are the next model-evidence work. The [baseline issue](https://github.com/cttsai1985/kaggle-alaska2-image-steganalysis/issues/3) remains open.
+The exact metric and the legacy implementation both return **MEASURED 0.8354033190** on these predictions. Their known tie-fixture difference does not explain this model result. **MEASURED family-bootstrap 2.5/97.5 percentiles:** 0.83412–0.83663. This describes resampling of this fixed holdout, not training-seed stability, generalization across cameras or a leaderboard confidence interval. [Full cohort, ROC-region and bootstrap aggregates](../evidence/phase2/retained_evaluation.json).
 
-## What the recovery tests establish
+## Interrupted training and independent reconstruction
 
-**MEASURED CPU fixture:** interrupted and uninterrupted training produce identical model hashes, including the persistent-worker/dropout case. Changed source or runtime provenance is rejected. The fixture's saved predictions reconstruct with zero observed probability and metric delta in the retained receipt. [CPU contracts](../evidence/phase2/cpu_contracts.json) · [Behavioral tests](../tests/test_e2e_cpu.py).
+The [baseline specification](../evidence/phase2/baseline_spec.json) declared the recipe before launch. **ESTIMATED before fitting:** smoke throughput selected five epochs under a three-hour overall cap. Those projections are not measured completion time.
 
-Those checks exercise synthetic data. They do not establish bit-for-bit replay of the interrupted CUDA run, recovery of evaluation/delivery stages or remote artifact integrity. The manifest, checkpoint, prediction and delivery states answer different completion questions.
+**MEASURED:** the retained run has four completed epochs, ends `interrupted` after SIGTERM, and records an accepted continuation with matching source/package/runtime provenance. The fallback policy explicitly permits evaluating the last completed checkpoint while retaining the incomplete label. Its epoch losses describe training, not validation.
 
-## Outstanding work
+**MEASURED independent reconstruction:** all 60,000 holdout predictions and all 5,000 test predictions rebuild from the saved checkpoint with maximum probability delta 0.0. Holdout weighted-AUC delta is 0.0. Input/split/population, canonical membership/labels and exact checkpoint/prediction hashes pass verification. Saved score columns and metric metadata are checked against canonical probabilities and recomputed metrics. Replacing an input during verification is rejected.
 
-| Issue | State supported by merged evidence | Remaining acceptance work |
+The shell could not see CUDA, but the existing Docker GPU lane could. The initial container attempt exhausted its default shared memory and produced no saved prediction artifact. The corrected execution used explicit shared memory with source/data mounted read-only; both attempts remain in private logs. The maintained launcher also removes only its own container on timeout/failure. **MEASURED holdout inference time:** 362.45 seconds in that execution; this is not total training or end-to-end workflow time. [Execution receipt](../evidence/phase2/retained_execution.json).
+
+No dedicated outage-timing receipt or complete cross-attempt `wall.json` was recovered from the original training run. Outage duration, total active training time and historical end-to-end budget compliance remain unverified. Independent model reload does not prove bit-for-bit replay of uninterrupted CUDA training, and does not establish remote artifact delivery.
+
+## Completion status
+
+| Issue | Evidence-backed status | Remaining work |
 | --- | --- | --- |
-| [Readiness #2](https://github.com/cttsai1985/kaggle-alaska2-image-steganalysis/issues/2) | Complete | Readiness/data/split receipts and the bounded plan are merged in [PR #6](https://github.com/cttsai1985/kaggle-alaska2-image-steganalysis/pull/6). |
-| [Baseline #3](https://github.com/cttsai1985/kaggle-alaska2-image-steganalysis/issues/3) | Partial | Produce explicitly scoped real-model predictions, reconstruct them independently, and explain ROC/cohort results; retain incomplete-budget status. |
-| [Ensemble and delivery #4](https://github.com/cttsai1985/kaggle-alaska2-image-steganalysis/issues/4) | Outstanding | Audit cached prediction/OOF provenance, verify ensemble arithmetic and submission identity, and demonstrate recoverable artifact transfer. |
-| [Walkthrough and delivery #5](https://github.com/cttsai1985/kaggle-alaska2-image-steganalysis/issues/5) | Partial | CPU CI and written decision stories exist; executed notebook, container/dev environment, hosted execution status, independent review and release evidence remain. |
-| [Parent #1](https://github.com/cttsai1985/kaggle-alaska2-image-steganalysis/issues/1) | Open | Complete or explicitly disposition the remaining phase acceptance criteria. |
-
-The README follows the same problem → findings → results → decisions → reproduction pattern as [Mercedes-Benz](https://github.com/cttsai1985/kaggle-mercedes-benz-solution), [Iceberg](https://github.com/cttsai1985/kaggle-statoil-iceberg-solution), [Home Credit](https://github.com/cttsai1985/kaggle-home-credit-solution) and [QUEST](https://github.com/cttsai1985/kaggle-google-quest-solution). Their completed-model and delivery claims are not imported into ALASKA2.
+| [Readiness #2](https://github.com/cttsai1985/kaggle-alaska2-image-steganalysis/issues/2) | Complete; merged in PR #6 | None for readiness. |
+| [Baseline #3](https://github.com/cttsai1985/kaggle-alaska2-image-steganalysis/issues/3) | Verified incomplete-run fallback, as permitted by acceptance | Intended training remains incomplete; do not relabel this result. |
+| [Ensemble/delivery #4](https://github.com/cttsai1985/kaggle-alaska2-image-steganalysis/issues/4) | In progress | Prediction/OOF provenance, fixed arithmetic, submission identity and recoverable transfer evidence. |
+| [Walkthrough #5](https://github.com/cttsai1985/kaggle-alaska2-image-steganalysis/issues/5) | In progress | Executed notebook, container/dev environment, explicit hosted status, reviewed release. |
+| [Parent #1](https://github.com/cttsai1985/kaggle-alaska2-image-steganalysis/issues/1) | Open | Complete the remaining phase acceptance criteria. |

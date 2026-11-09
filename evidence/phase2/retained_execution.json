@@ -1,0 +1,23 @@
+{
+  "cpus": 6,
+  "eval_batch_size": 64,
+  "first_attempt": {
+    "error": "unable to allocate shared memory: No space left on device",
+    "log_sha256": "afd21909ec5ddf110ed754911f0bd91e8426938b1aa6e8d8863c4c99769b539b",
+    "recovery": "explicit shared memory; failed log retained outside Git",
+    "status": "failed"
+  },
+  "image_id": "sha256:ca14dc8401b66a20e1ca678268250834c5c66ac3f458dd570088bb681444ffc0",
+  "image_tag": "nvidia/cuda:12.4.1-base-ubuntu22.04",
+  "limits": "the historical run lacks a complete cross-attempt wall receipt; projected training budget is not measured completion time",
+  "loader_workers": 2,
+  "measurement_status": "MEASURED",
+  "memory": "24g",
+  "network": "none",
+  "new_training": false,
+  "runtime": "read-only mounted original locked Python environment",
+  "scope": "last completed epoch of interrupted baseline; no claim of completed five-epoch training",
+  "shared_memory": "2g",
+  "source_and_data_read_only": true,
+  "verification_code_commit": "e27fc6ebef6ba41c4fcb7bf61ddd97af47bd2b6f"
+}
