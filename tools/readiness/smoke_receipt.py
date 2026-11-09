@@ -120,7 +120,7 @@ def main() -> None:
         },
         "population": {
             "fit": "all 240,000 fit rows sampled (200 steps x 32 = 6,400 images seen)",
-            "valid": m["population_audit"].get("population"),
+            "valid": m["identities"]["population"],
             "valid_rows_evaluated": eval_rows,
         },
         "train": {
