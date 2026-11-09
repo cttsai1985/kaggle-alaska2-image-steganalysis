@@ -52,6 +52,8 @@ No dedicated outage-timing receipt or complete cross-attempt `wall.json` was rec
 | --- | --- | --- |
 | [Readiness #2](https://github.com/cttsai1985/kaggle-alaska2-image-steganalysis/issues/2) | Complete; merged in PR #6 | None for readiness. |
 | [Baseline #3](https://github.com/cttsai1985/kaggle-alaska2-image-steganalysis/issues/3) | Verified incomplete-run fallback, as permitted by acceptance | Intended training remains incomplete; do not relabel this result. |
-| [Ensemble/delivery #4](https://github.com/cttsai1985/kaggle-alaska2-image-steganalysis/issues/4) | In progress | Prediction/OOF provenance, fixed arithmetic, submission identity and recoverable transfer evidence. |
+| [Ensemble/delivery #4](https://github.com/cttsai1985/kaggle-alaska2-image-steganalysis/issues/4) | Verified single-model provenance and filesystem recovery | Learned stacking and real ensemble gains remain deferred without full OOF evidence; remote services are unverified. |
 | [Walkthrough #5](https://github.com/cttsai1985/kaggle-alaska2-image-steganalysis/issues/5) | In progress | Executed notebook, container/dev environment, explicit hosted status, reviewed release. |
 | [Parent #1](https://github.com/cttsai1985/kaggle-alaska2-image-steganalysis/issues/1) | Open | Complete the remaining phase acceptance criteria. |
+
+[Prediction/OOF audit, official sample ordering and controlled real-model transfer recovery](consumer-contract.md) · [Aggregate receipt](../evidence/phase3/provenance_delivery.json).

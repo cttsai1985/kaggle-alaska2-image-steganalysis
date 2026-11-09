@@ -1,4 +1,4 @@
-"""Thin CLI: ``python -m alaska2 validate|train|evaluate|predict|verify``."""
+"""Manifest-driven training, verification, prediction composition and recoverable artifact handoff."""
 
 from __future__ import annotations
 
@@ -103,6 +103,45 @@ def cmd_verify(a: argparse.Namespace) -> int:
     return 0 if res["passed"] else 1
 
 
+def cmd_export(a: argparse.Namespace) -> int:
+    from alaska2.composition import export_predictions
+
+    result = export_predictions(
+        [Path(p) for p in a.predictions],
+        [Path(p) for p in a.checkpoint],
+        Path(a.sample),
+        Path(a.out),
+        a.data_root,
+    )
+    print(json.dumps(result, indent=2, sort_keys=True))
+    return 0
+
+
+def cmd_bundle(a: argparse.Namespace) -> int:
+    from alaska2.delivery import create_bundle, verify_bundle
+
+    files = {key: Path(value).expanduser() for key, value in json.loads(Path(a.files).read_text()).items()}
+    path = create_bundle(json.loads(Path(a.identity).read_text()), files, Path(a.out))
+    manifest = verify_bundle(path)
+    print(json.dumps({"experiment_id": manifest["experiment_id"], "verified_files": len(manifest["files"])}))
+    return 0
+
+
+def cmd_deliver(a: argparse.Namespace) -> int:
+    from alaska2.delivery import deliver
+
+    result = deliver(
+        Path(a.bundle),
+        Path(a.destination),
+        Path(a.state),
+        recover=a.recover,
+        fault=a.fault,
+        quality_accepted=not a.quality_reject,
+    )
+    print(json.dumps(result, indent=2, sort_keys=True))
+    return 0 if result["state"] == "delivered" else 3
+
+
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="alaska2", description=__doc__)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -140,6 +179,31 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--out")
     _runtime_args(p)
     p.set_defaults(fn=cmd_verify)
+    p = sub.add_parser(
+        "export", help="verified test predictions to sample-ordered submission CSV (no upload)"
+    )
+    p.add_argument("--predictions", action="append", required=True)
+    p.add_argument("--checkpoint", action="append", required=True)
+    p.add_argument("--sample", required=True)
+    p.add_argument("--out", required=True)
+    p.add_argument("--data-root")
+    p.set_defaults(fn=cmd_export)
+
+    p = sub.add_parser("bundle", help="build or reconcile an immutable offline experiment bundle")
+    p.add_argument("--identity", required=True, help="scientific identity JSON")
+    p.add_argument("--files", required=True, help="JSON map of bundle-relative member names to source files")
+    p.add_argument("--out", required=True)
+    p.set_defaults(fn=cmd_bundle)
+
+    p = sub.add_parser("deliver", help="byte-verified filesystem transfer; explicit recovery after failure")
+    p.add_argument("--bundle", required=True)
+    p.add_argument("--destination", required=True)
+    p.add_argument("--state", required=True)
+    p.add_argument("--recover", action="store_true")
+    p.add_argument("--fault", choices=["after_copy", "corrupt_copy", "after_publish"])
+    p.add_argument("--quality-reject", action="store_true", help="controlled quality-gate drill")
+    p.set_defaults(fn=cmd_deliver)
+
     return ap
 
 

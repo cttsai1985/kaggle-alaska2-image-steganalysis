@@ -45,11 +45,19 @@ The interrupted baseline retains checkpoint hashes, completed-epoch statistics a
 
 **MEASURED:** independent checkpoint reload reconstructs all 60,000 holdout predictions and all 5,000 test predictions with maximum probability delta 0.0. Holdout metric delta is 0.0. The training manifest remains interrupted: successful evaluation preserves that incomplete status, and does not establish artifact delivery. CPU fixture tests show deterministic resumed weights; that training-replay equivalence has not been demonstrated for this interrupted CUDA run. [Verified fallback receipt](evidence/phase2/retained_evaluation.json) · [Recovery limits](docs/results.md#interrupted-training).
 
+## From predictions to a verified handoff
+
+**MEASURED:** the retained model exports all 5,000 supplied test IDs in sample order. Its offline bundle contains 10 checksum-verified files. Controlled incomplete, corrupt and post-publish transfers each recover under the same experiment ID without training or inference being repeated. Destination ownership cannot be bypassed with a different local state directory. [Provenance and recovery evidence](evidence/phase3/provenance_delivery.json).
+
+The source audit does not establish a leakage-safe full OOF matrix for the historical cached stacker. Learned stacking remains deferred, and the real-model output stays labeled single-model. The fixed probability mean is tested on synthetic fixtures; no real ensemble improvement is claimed. [Why these contracts](docs/consumer-contract.md).
+
+This handoff uses a filesystem destination. The versioned canonical tracking/storage proposal does not create a namespace, and no MLflow/S3 service delivery is claimed.
+
 ## Reproduce
 
 The [reproduction guide](docs/reproduction.md) separates public CPU contract tests from authorized competition-data and CUDA execution. It includes the supported CLI, input manifests, resource checks and saved-checkpoint verification commands.
 
-An executed learning notebook, Docker JupyterLab, dev container and hosted Kaggle walkthrough remain outstanding in [the delivery issue](https://github.com/cttsai1985/kaggle-alaska2-image-steganalysis/issues/5). Ensemble-input provenance and recoverable artifact delivery remain outstanding in [the ensemble issue](https://github.com/cttsai1985/kaggle-alaska2-image-steganalysis/issues/4). The package does not yet establish a verified modern ensemble or a deployed detection service.
+An executed learning notebook, Docker JupyterLab, dev container and hosted Kaggle walkthrough remain outstanding in [the delivery issue](https://github.com/cttsai1985/kaggle-alaska2-image-steganalysis/issues/5). Prediction provenance and offline recovery are recorded in [the consumer contract](docs/consumer-contract.md). The package does not establish a real ensemble improvement or a deployed detection service.
 
 The maintained implementation is in `src/alaska2/`; experiment recipes are in `configs/`, aggregate evidence in `evidence/`, and contract tests in `tests/`. The original solution and attribution are preserved in [legacy/](legacy/README.md). The [readiness report](docs/phase1-readiness.md) and [package report](docs/phase2-package.md) retain the detailed engineering record.
 
