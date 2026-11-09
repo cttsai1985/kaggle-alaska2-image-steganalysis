@@ -403,3 +403,58 @@ def test_sigterm_wall_clock_cap_closes_manifest_as_interrupted(fixture_data, tmp
     m = json.loads((run / "run_manifest.json").read_text())
     assert m["status"] == "interrupted" and "SIGTERM" in m["error"], (m["status"], m.get("error"), err[-500:])
     assert m["epochs"] and m["final_checkpoint"] and m["terminated_by_signal"] == signal.SIGTERM
+
+
+def test_verification_receipt_binds_exact_prediction_and_checkpoint_bytes(trained, tmp_path):
+    from alaska2.identity import sha256_file
+
+    _, run = trained
+    checkpoint = run / "checkpoints" / "last.pt"
+    pred = evaluate(checkpoint, out_dir=tmp_path)
+    receipt = verify(pred)
+    assert receipt["predictions_sha256"] == sha256_file(pred)
+    assert receipt["checkpoint_sha256"] == sha256_file(checkpoint)
+    assert receipt["model_sha256"] == load_checkpoint(checkpoint)["model_sha256"]
+
+
+def test_verify_rejects_rank_preserving_but_incorrect_score(trained, tmp_path):
+    from alaska2.identity import sha256_file
+
+    _, run = trained
+    pred = evaluate(run / "checkpoints/last.pt", out_dir=tmp_path)
+    pl.read_parquet(pred).with_columns((pl.col("score") * 0.5).alias("score")).write_parquet(pred)
+    meta = json.loads(pred.with_suffix(".json").read_text())
+    meta["predictions_sha256"] = sha256_file(pred)
+    pred.with_suffix(".json").write_text(json.dumps(meta))
+    assert not verify(pred)["passed"]
+
+
+def test_verify_rejects_changed_metric_metadata(trained, tmp_path):
+    _, run = trained
+    pred = evaluate(run / "checkpoints/last.pt", out_dir=tmp_path)
+    meta = json.loads(pred.with_suffix(".json").read_text())
+    meta["metrics"]["pooled"]["weighted_auc"] = 99.0
+    pred.with_suffix(".json").write_text(json.dumps(meta))
+    assert not verify(pred)["passed"]
+
+
+def test_verify_rejects_replacement_during_inference(trained, tmp_path, monkeypatch):
+    import importlib
+
+    from alaska2.identity import sha256_file
+
+    module = importlib.import_module("alaska2.evaluate")
+    _, run = trained
+    pred = evaluate(run / "checkpoints/last.pt", out_dir=tmp_path)
+    initial = sha256_file(pred)
+    original = module.infer
+
+    def replace_after_loading(*args):
+        logits = original(*args)
+        pl.read_parquet(pred).with_columns((pl.col("p_Cover") * 0.1).alias("p_Cover")).write_parquet(pred)
+        return logits
+
+    monkeypatch.setattr(module, "infer", replace_after_loading)
+    receipt = verify(pred)
+    assert not receipt["passed"]
+    assert receipt["predictions_sha256"] == initial

@@ -7,6 +7,7 @@ import polars as pl
 import pytest
 
 from alaska2.constants import CLASSES
+from alaska2.identity import sha256_file
 from alaska2.metrics import softmax, weighted_auc
 from tools.analysis.holdout_analysis import analyse, operating_points
 
@@ -39,7 +40,7 @@ def _fake_predictions(tmp_path, n_fam=300, seed=0):
     meta = {
         "split": "valid",
         "result_label": "FIXTURE_NOT_A_MODEL_RESULT",
-        "predictions_sha256": "x",
+        "predictions_sha256": sha256_file(path),
         "model_sha256": "y",
         "epoch": 1,
     }
@@ -81,3 +82,12 @@ def test_chance_reference_equals_the_metric_on_tied_scores():
 
     y = np.array([0, 1] * 50)
     assert weighted_auc(y, np.zeros(100)) == pytest.approx(CHANCE_WEIGHTED_AUC, abs=1e-12)
+
+
+def test_analysis_rejects_stale_input_hash(tmp_path):
+    path, _ = _fake_predictions(tmp_path)
+    meta = json.loads(path.with_suffix(".json").read_text())
+    meta["predictions_sha256"] = "stale"
+    path.with_suffix(".json").write_text(json.dumps(meta))
+    with pytest.raises(ValueError, match="hash"):
+        analyse(path, tmp_path / "ev", n_boot=2, seed=1, make_plots=False)

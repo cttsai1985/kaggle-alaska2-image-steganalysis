@@ -48,7 +48,7 @@ CUDA is explicit; asking for it without an available GPU fails. The host is shar
 
 ```bash
 uv run --locked python -m tools.readiness.launch_gate \
-  --data-dir "$HOME/data/kaggle/alaska2-image-steganalysis"
+  --data-dir "$HOME/data/kaggle/alaska2-image-steganalysis" --label evaluation
 ```
 
 The [fixed baseline specification](../evidence/phase2/baseline_spec.json) records the historical recipe and budget; its throughput-based times are estimates. The source TOML is a recipe template, while the specification records the actual overrides used for the interrupted run. Reusing the template alone does not reproduce that run's resolved config.
@@ -84,3 +84,19 @@ This tool uses only the standard library. It reads saved receipts, removes priva
 ## Execution environments still outstanding
 
 A learning notebook, Docker JupyterLab, dev container and portable offline Kaggle path have not been delivered. The original `legacy/docker/` files are historical source, not a verified current environment. Hosted execution, shared tracking/storage transfer and a release remain unverified for this model. [Delivery acceptance](https://github.com/cttsai1985/kaggle-alaska2-image-steganalysis/issues/5).
+
+## Reproduce the verified incomplete-run fallback
+
+`tools/runs/retained_gpu.sh RUNTIME_CHECKOUT DATA_ROOT OUTPUT_ROOT RUN_ID [CAP_S]` runs evaluation and fresh-process holdout/test verification without training. It uses the existing locked runtime through read-only mounts and requires the local CUDA base image. The current execution's exact image identity and runtime limits are in [the receipt](../evidence/phase2/retained_execution.json). The output directory is exclusively locked; a timeout cleans up only the container created by that invocation.
+
+The launcher declares a finite evaluation allowance independently of the exhausted/incomplete historical training budget. Its resource and mount contract, input/output binding, incomplete-result label and timeout cleanup have regression tests. Source data and checkpoint files are read-only.
+
+After evaluation, aggregate analysis can be recomputed from the saved predictions with `python -m tools.analysis.holdout_analysis`, then bound to the verified checkpoint with:
+
+```bash
+uv run --locked python -m tools.runs.retained_receipt \
+  --run-dir /path/to/original-run --predictions-dir /path/to/output/predictions \
+  --analysis /path/to/holdout_analysis.json --out /path/to/retained_evaluation.json
+```
+
+The collector requires baseline purpose, exact source/checkpoint/prediction/population identities, current independent verification, checkpoint-defined tolerances and agreement of the analysis with canonical metrics. It never promotes fixture/smoke evidence to a real-model result.

@@ -1,0 +1,979 @@
+{
+  "analysis": {
+    "bootstrap": {
+      "by_quality": {
+        "75": {
+          "auc": {
+            "p2.5": 0.8108816657256162,
+            "p97.5": 0.8158112692554574,
+            "sd": 0.001276119107386501
+          },
+          "weighted_auc": {
+            "p2.5": 0.8647615972959256,
+            "p97.5": 0.8681700755123858,
+            "sd": 0.0009153748846835035
+          }
+        },
+        "90": {
+          "auc": {
+            "p2.5": 0.7852446865025073,
+            "p97.5": 0.7906465379553382,
+            "sd": 0.0014653812517314863
+          },
+          "weighted_auc": {
+            "p2.5": 0.8460816912606193,
+            "p97.5": 0.85024112158006,
+            "sd": 0.0010811212310898556
+          }
+        },
+        "95": {
+          "auc": {
+            "p2.5": 0.6810913341734329,
+            "p97.5": 0.6866935165135787,
+            "sd": 0.001370693356860106
+          },
+          "weighted_auc": {
+            "p2.5": 0.7635128588463819,
+            "p97.5": 0.7683258780356086,
+            "sd": 0.001205554860387374
+          }
+        }
+      },
+      "meaning": "sampling uncertainty of this holdout for this one trained model; not seed/training variance, not CV",
+      "method": "family-level resampling with replacement, 200 draws, numpy seed 20261109",
+      "pooled": {
+        "auc": {
+          "p2.5": 0.7684986477037037,
+          "p97.5": 0.7718162885000002,
+          "sd": 0.0009305631623919879
+        },
+        "weighted_auc": {
+          "p2.5": 0.8341237619047619,
+          "p97.5": 0.8366319525132275,
+          "sd": 0.0006895087564433962
+        }
+      }
+    },
+    "by_quality": {
+      "75": {
+        "auc": 0.8135796000000001,
+        "auc_lift_over_chance": 0.31357960000000007,
+        "band_area": [
+          0.3997424400000001,
+          0.41383716
+        ],
+        "band_contribution": [
+          0.5710606285714287,
+          0.2955979714285714
+        ],
+        "band_lift_over_chance": [
+          0.11391777142857151,
+          0.16702654285714283
+        ],
+        "band_shortfall": [
+          0.00036794285714281116,
+          0.1329734571428572
+        ],
+        "families": 5000,
+        "negatives": 5000,
+        "operating_points": {
+          "fpr_at_tpr": {
+            "0.4": 0.001,
+            "0.8": 0.4126,
+            "0.9": 0.649
+          },
+          "tpr_at_fpr": {
+            "0.001": 0.40073333333333333,
+            "0.01": 0.5070666666666667,
+            "0.05": 0.568,
+            "0.1": 0.6079333333333333
+          }
+        },
+        "positives": 15000,
+        "rows": 20000,
+        "weighted_auc": 0.8666586000000002,
+        "weighted_auc_lift_over_chance": 0.2809443142857144
+      },
+      "90": {
+        "auc": 0.7878558266666668,
+        "auc_lift_over_chance": 0.28785582666666676,
+        "band_area": [
+          0.3994700866666667,
+          0.38838574000000003
+        ],
+        "band_contribution": [
+          0.5706715523809525,
+          0.27741838571428573
+        ],
+        "band_lift_over_chance": [
+          0.11352869523809528,
+          0.14884695714285714
+        ],
+        "band_shortfall": [
+          0.0007570190476190453,
+          0.15115304285714287
+        ],
+        "families": 5000,
+        "negatives": 5000,
+        "operating_points": {
+          "fpr_at_tpr": {
+            "0.4": 0.0124,
+            "0.8": 0.4596,
+            "0.9": 0.672
+          },
+          "tpr_at_fpr": {
+            "0.001": 0.3184666666666667,
+            "0.01": 0.3852,
+            "0.05": 0.486,
+            "0.1": 0.5484666666666667
+          }
+        },
+        "positives": 15000,
+        "rows": 20000,
+        "weighted_auc": 0.8480899380952381,
+        "weighted_auc_lift_over_chance": 0.2623756523809524
+      },
+      "95": {
+        "auc": 0.6838877733333334,
+        "auc_lift_over_chance": 0.1838877733333334,
+        "band_area": [
+          0.3884862266666667,
+          0.2954015466666667
+        ],
+        "band_contribution": [
+          0.5549803238095239,
+          0.21100110476190478
+        ],
+        "band_lift_over_chance": [
+          0.0978374666666667,
+          0.0824296761904762
+        ],
+        "band_shortfall": [
+          0.016448247619047618,
+          0.21757032380952382
+        ],
+        "families": 5000,
+        "negatives": 5000,
+        "operating_points": {
+          "fpr_at_tpr": {
+            "0.4": 0.1402,
+            "0.8": 0.6258,
+            "0.9": 0.7872
+          },
+          "tpr_at_fpr": {
+            "0.001": 0.20046666666666665,
+            "0.01": 0.23053333333333334,
+            "0.05": 0.2958,
+            "0.1": 0.3594
+          }
+        },
+        "positives": 15000,
+        "rows": 20000,
+        "weighted_auc": 0.7659814285714287,
+        "weighted_auc_lift_over_chance": 0.18026714285714296
+      }
+    },
+    "confusion": {
+      "classes": [
+        "Cover",
+        "JMiPOD",
+        "JUNIWARD",
+        "UERD"
+      ],
+      "four_class_accuracy": 0.5780666666666666,
+      "per_class_recall": {
+        "Cover": 0.6278,
+        "JMiPOD": 0.7342,
+        "JUNIWARD": 0.17033333333333334,
+        "UERD": 0.7799333333333334
+      },
+      "rows_true_cols_pred": [
+        [
+          9417,
+          2274,
+          1895,
+          1414
+        ],
+        [
+          3116,
+          11013,
+          266,
+          605
+        ],
+        [
+          8497,
+          2558,
+          2555,
+          1390
+        ],
+        [
+          2544,
+          599,
+          158,
+          11699
+        ]
+      ]
+    },
+    "cover_vs_kind": {
+      "JMiPOD": {
+        "auc": 0.8738402111111111,
+        "auc_lift_over_chance": 0.3738402111111111,
+        "band_area": [
+          0.39979203555555554,
+          0.47404817555555556
+        ],
+        "band_contribution": [
+          0.5711314793650794,
+          0.3386058396825397
+        ],
+        "band_lift_over_chance": [
+          0.11398862222222217,
+          0.21003441111111112
+        ],
+        "band_shortfall": [
+          0.0002970920634921548,
+          0.08996558888888889
+        ],
+        "families": 15000,
+        "negatives": 15000,
+        "operating_points": {
+          "fpr_at_tpr": {
+            "0.4": 0.0024666666666666665,
+            "0.8": 0.27153333333333335,
+            "0.9": 0.43653333333333333
+          },
+          "tpr_at_fpr": {
+            "0.001": 0.34973333333333334,
+            "0.01": 0.4716666666666667,
+            "0.05": 0.5892666666666667,
+            "0.1": 0.6551333333333333
+          }
+        },
+        "positives": 15000,
+        "rows": 30000,
+        "weighted_auc": 0.9097373190476191,
+        "weighted_auc_lift_over_chance": 0.3240230333333334
+      },
+      "JUNIWARD": {
+        "auc": 0.5334620666666667,
+        "auc_lift_over_chance": 0.033462066666666734,
+        "band_area": [
+          0.3323829711111112,
+          0.20107909555555553
+        ],
+        "band_contribution": [
+          0.474832815873016,
+          0.1436279253968254
+        ],
+        "band_lift_over_chance": [
+          0.017689958730158828,
+          0.015056496825396809
+        ],
+        "band_shortfall": [
+          0.0965957555555555,
+          0.2849435031746032
+        ],
+        "families": 15000,
+        "negatives": 15000,
+        "operating_points": {
+          "fpr_at_tpr": {
+            "0.4": 0.3552666666666667,
+            "0.8": 0.7624,
+            "0.9": 0.8718
+          },
+          "tpr_at_fpr": {
+            "0.001": 0.009933333333333334,
+            "0.01": 0.0238,
+            "0.05": 0.0726,
+            "0.1": 0.12886666666666666
+          }
+        },
+        "positives": 15000,
+        "rows": 30000,
+        "weighted_auc": 0.6184607412698414,
+        "weighted_auc_lift_over_chance": 0.032746455555555665
+      },
+      "UERD": {
+        "auc": 0.9034228222222223,
+        "auc_lift_over_chance": 0.40342282222222225,
+        "band_area": [
+          0.3999103777777778,
+          0.5035124444444444
+        ],
+        "band_contribution": [
+          0.5713005396825398,
+          0.35965174603174604
+        ],
+        "band_lift_over_chance": [
+          0.11415768253968261,
+          0.23108031746031746
+        ],
+        "band_shortfall": [
+          0.0001280317460317093,
+          0.06891968253968256
+        ],
+        "families": 15000,
+        "negatives": 15000,
+        "operating_points": {
+          "fpr_at_tpr": {
+            "0.4": 0.0003333333333333333,
+            "0.8": 0.1764,
+            "0.9": 0.3896
+          },
+          "tpr_at_fpr": {
+            "0.001": 0.5825333333333333,
+            "0.01": 0.6358666666666667,
+            "0.05": 0.6922,
+            "0.1": 0.7386666666666667
+          }
+        },
+        "positives": 15000,
+        "rows": 30000,
+        "weighted_auc": 0.9309522857142858,
+        "weighted_auc_lift_over_chance": 0.34523800000000004
+      }
+    },
+    "cover_vs_kind_by_quality": {
+      "JMiPOD|q75": {
+        "auc": 0.9799825600000001,
+        "auc_lift_over_chance": 0.47998256000000006,
+        "band_area": [
+          0.39979560000000003,
+          0.58018696
+        ],
+        "band_contribution": [
+          0.5711365714285715,
+          0.4144192571428572
+        ],
+        "band_lift_over_chance": [
+          0.11399371428571436,
+          0.28584782857142865
+        ],
+        "band_shortfall": [
+          0.00029199999999995896,
+          0.014152171428571392
+        ],
+        "families": 5000,
+        "negatives": 5000,
+        "positives": 5000,
+        "rows": 10000,
+        "weighted_auc": 0.9855558285714286,
+        "weighted_auc_lift_over_chance": 0.3998415428571429
+      },
+      "JMiPOD|q90": {
+        "auc": 0.9167704,
+        "auc_lift_over_chance": 0.4167704,
+        "band_area": [
+          0.39971316,
+          0.51705724
+        ],
+        "band_contribution": [
+          0.5710188,
+          0.3693266
+        ],
+        "band_lift_over_chance": [
+          0.11387594285714286,
+          0.24075517142857142
+        ],
+        "band_shortfall": [
+          0.0004097714285714593,
+          0.0592448285714286
+        ],
+        "families": 5000,
+        "negatives": 5000,
+        "positives": 5000,
+        "rows": 10000,
+        "weighted_auc": 0.9403454000000001,
+        "weighted_auc_lift_over_chance": 0.35463111428571437
+      },
+      "JMiPOD|q95": {
+        "auc": 0.6061422599999999,
+        "auc_lift_over_chance": 0.10614225999999993,
+        "band_area": [
+          0.35783518,
+          0.24830707999999996
+        ],
+        "band_contribution": [
+          0.5111931142857142,
+          0.17736219999999997
+        ],
+        "band_lift_over_chance": [
+          0.05405025714285705,
+          0.04879077142857138
+        ],
+        "band_shortfall": [
+          0.060235457142857274,
+          0.25120922857142863
+        ],
+        "families": 5000,
+        "negatives": 5000,
+        "positives": 5000,
+        "rows": 10000,
+        "weighted_auc": 0.6885553142857143,
+        "weighted_auc_lift_over_chance": 0.10284102857142852
+      },
+      "JUNIWARD|q75": {
+        "auc": 0.55657452,
+        "auc_lift_over_chance": 0.05657451999999996,
+        "band_area": [
+          0.34345024,
+          0.21312427999999997
+        ],
+        "band_contribution": [
+          0.49064320000000006,
+          0.15223162857142855
+        ],
+        "band_lift_over_chance": [
+          0.03350034285714287,
+          0.023660199999999965
+        ],
+        "band_shortfall": [
+          0.08078537142857145,
+          0.2763398
+        ],
+        "families": 5000,
+        "negatives": 5000,
+        "positives": 5000,
+        "rows": 10000,
+        "weighted_auc": 0.6428748285714286,
+        "weighted_auc_lift_over_chance": 0.05716054285714289
+      },
+      "JUNIWARD|q90": {
+        "auc": 0.52605768,
+        "auc_lift_over_chance": 0.026057679999999972,
+        "band_area": [
+          0.32718457999999995,
+          0.1988731
+        ],
+        "band_contribution": [
+          0.46740654285714284,
+          0.1420522142857143
+        ],
+        "band_lift_over_chance": [
+          0.010263685714285653,
+          0.013480785714285709
+        ],
+        "band_shortfall": [
+          0.10402202857142867,
+          0.2865192142857143
+        ],
+        "families": 5000,
+        "negatives": 5000,
+        "positives": 5000,
+        "rows": 10000,
+        "weighted_auc": 0.6094587571428571,
+        "weighted_auc_lift_over_chance": 0.02374447142857139
+      },
+      "JUNIWARD|q95": {
+        "auc": 0.52116706,
+        "auc_lift_over_chance": 0.021167060000000015,
+        "band_area": [
+          0.32460922000000003,
+          0.19655783999999998
+        ],
+        "band_contribution": [
+          0.46372745714285724,
+          0.14039845714285715
+        ],
+        "band_lift_over_chance": [
+          0.0065846000000000515,
+          0.01182702857142856
+        ],
+        "band_shortfall": [
+          0.10770111428571427,
+          0.28817297142857146
+        ],
+        "families": 5000,
+        "negatives": 5000,
+        "positives": 5000,
+        "rows": 10000,
+        "weighted_auc": 0.6041259142857144,
+        "weighted_auc_lift_over_chance": 0.01841162857142864
+      },
+      "UERD|q75": {
+        "auc": 0.90418172,
+        "auc_lift_over_chance": 0.40418171999999997,
+        "band_area": [
+          0.39973864000000003,
+          0.5044430799999999
+        ],
+        "band_contribution": [
+          0.5710552000000001,
+          0.3603164857142857
+        ],
+        "band_lift_over_chance": [
+          0.11391234285714291,
+          0.23174505714285712
+        ],
+        "band_shortfall": [
+          0.0003733714285714118,
+          0.0682549428571429
+        ],
+        "families": 5000,
+        "negatives": 5000,
+        "positives": 5000,
+        "rows": 10000,
+        "weighted_auc": 0.9313716857142857,
+        "weighted_auc_lift_over_chance": 0.3456574
+      },
+      "UERD|q90": {
+        "auc": 0.9207394,
+        "auc_lift_over_chance": 0.4207394,
+        "band_area": [
+          0.39998732000000004,
+          0.52075208
+        ],
+        "band_contribution": [
+          0.5714104571428572,
+          0.3719657714285714
+        ],
+        "band_lift_over_chance": [
+          0.11426760000000002,
+          0.24339434285714281
+        ],
+        "band_shortfall": [
+          1.8114285714299072e-05,
+          0.0566056571428572
+        ],
+        "families": 5000,
+        "negatives": 5000,
+        "positives": 5000,
+        "rows": 10000,
+        "weighted_auc": 0.9433762285714288,
+        "weighted_auc_lift_over_chance": 0.35766194285714303
+      },
+      "UERD|q95": {
+        "auc": 0.9243540000000001,
+        "auc_lift_over_chance": 0.4243540000000001,
+        "band_area": [
+          0.40000000000000013,
+          0.524354
+        ],
+        "band_contribution": [
+          0.5714285714285716,
+          0.37453857142857144
+        ],
+        "band_lift_over_chance": [
+          0.11428571428571443,
+          0.24596714285714286
+        ],
+        "band_shortfall": [
+          -1.1102230246251565e-16,
+          0.05403285714285716
+        ],
+        "families": 5000,
+        "negatives": 5000,
+        "positives": 5000,
+        "rows": 10000,
+        "weighted_auc": 0.9459671428571431,
+        "weighted_auc_lift_over_chance": 0.3602528571428574
+      }
+    },
+    "coverage": {
+      "by_kind": {
+        "Cover": 15000,
+        "JMiPOD": 15000,
+        "JUNIWARD": 15000,
+        "UERD": 15000
+      },
+      "by_quality": {
+        "75": 20000,
+        "90": 20000,
+        "95": 20000
+      },
+      "families_complete_4_variants": 15000,
+      "kind_by_quality": {
+        "Cover|q75": 5000,
+        "Cover|q90": 5000,
+        "Cover|q95": 5000,
+        "JMiPOD|q75": 5000,
+        "JMiPOD|q90": 5000,
+        "JMiPOD|q95": 5000,
+        "JUNIWARD|q75": 5000,
+        "JUNIWARD|q90": 5000,
+        "JUNIWARD|q95": 5000,
+        "UERD|q75": 5000,
+        "UERD|q90": 5000,
+        "UERD|q95": 5000
+      }
+    },
+    "epoch": 4,
+    "families": 15000,
+    "kind": "holdout_analysis",
+    "metric_definition": {
+      "chance_auc": 0.5,
+      "chance_band_contribution": [
+        0.4571428571428572,
+        0.1285714285714286
+      ],
+      "chance_weighted_auc": 0.5857142857142857,
+      "max_band_contribution": [
+        0.5714285714285715,
+        0.4285714285714286
+      ],
+      "normalization": 1.4,
+      "score": "1 - p_Cover",
+      "tpr_bands": [
+        [
+          0.0,
+          0.4
+        ],
+        [
+          0.4,
+          1.0
+        ]
+      ],
+      "weights": [
+        2,
+        1
+      ]
+    },
+    "model_sha256": "45dd6e1ca794a143545ce6a2e24ac682f92c466d54b3bead2dab5b431f75acfa",
+    "pooled": {
+      "auc": 0.7702416999999999,
+      "auc_lift_over_chance": 0.2702416999999999,
+      "auc_sklearn": 0.7702417000000001,
+      "band_area": [
+        0.3993229466666667,
+        0.37091875333333324
+      ],
+      "band_contribution": [
+        0.5704613523809524,
+        0.26494196666666664
+      ],
+      "band_lift_over_chance": [
+        0.11331849523809523,
+        0.13637053809523805
+      ],
+      "band_shortfall": [
+        0.0009672190476190945,
+        0.16362946190476196
+      ],
+      "distinct_scores": 58830,
+      "families": 15000,
+      "negatives": 15000,
+      "operating_points": {
+        "fpr_at_tpr": {
+          "0.4": 0.018533333333333332,
+          "0.8": 0.4932,
+          "0.9": 0.6924
+        },
+        "tpr_at_fpr": {
+          "0.001": 0.31406666666666666,
+          "0.01": 0.3771111111111111,
+          "0.05": 0.45135555555555557,
+          "0.1": 0.5075555555555555
+        }
+      },
+      "positives": 45000,
+      "rows": 60000,
+      "weighted_auc": 0.8354033190476191,
+      "weighted_auc_legacy_impl": 0.8354033190476191,
+      "weighted_auc_lift_over_chance": 0.24968903333333337
+    },
+    "population": "legacy fold 1 single holdout (family-level), not cross-validation",
+    "predictions_sha256": "1ca5c151843d039fde53e416d0458463062aa5735a7018ccf031a5f9b91de2c0",
+    "rank_agreement": {
+      "kind_by_auc": [
+        "UERD",
+        "JMiPOD",
+        "JUNIWARD"
+      ],
+      "kind_by_weighted_auc": [
+        "UERD",
+        "JMiPOD",
+        "JUNIWARD"
+      ],
+      "quality_by_auc": [
+        "75",
+        "90",
+        "95"
+      ],
+      "quality_by_weighted_auc": [
+        "75",
+        "90",
+        "95"
+      ]
+    },
+    "redaction": "aggregates only; no image ids, family ids or per-row values",
+    "result_label": "INCOMPLETE_REAL_DATA_BASELINE",
+    "rows": 60000,
+    "score_quantiles_by_kind_quality": {
+      "Cover|q75": {
+        "25": 0.5360080661633153,
+        "5": 0.48381341805913186,
+        "50": 0.6022586999464403,
+        "75": 0.6554567533074414,
+        "95": 0.7664396489113238
+      },
+      "Cover|q90": {
+        "25": 0.5450497775348614,
+        "5": 0.4820936480308355,
+        "50": 0.6265535292508158,
+        "75": 0.6947152548015212,
+        "95": 0.8298970666115797
+      },
+      "Cover|q95": {
+        "25": 0.6485073003628457,
+        "5": 0.573737323462053,
+        "50": 0.6786774521988218,
+        "75": 0.726424142824331,
+        "95": 0.7724882190519677
+      },
+      "JMiPOD|q75": {
+        "25": 0.9732712177803302,
+        "5": 0.7177812779392511,
+        "50": 0.9835878760071504,
+        "75": 0.9863414391527298,
+        "95": 0.9886295998139544
+      },
+      "JMiPOD|q90": {
+        "25": 0.7814835949362198,
+        "5": 0.6402894149879893,
+        "50": 0.9302422962253848,
+        "75": 0.9800057310576833,
+        "95": 0.9864317400617223
+      },
+      "JMiPOD|q95": {
+        "25": 0.6612592480876376,
+        "5": 0.6280528980582312,
+        "50": 0.7041087452756801,
+        "75": 0.743189751706381,
+        "95": 0.8497236754056271
+      },
+      "JUNIWARD|q75": {
+        "25": 0.5515196717248572,
+        "5": 0.4936891850163266,
+        "50": 0.6174534114824892,
+        "75": 0.6709904312905005,
+        "95": 0.9121837690642709
+      },
+      "JUNIWARD|q90": {
+        "25": 0.5573898401004898,
+        "5": 0.4894614285458946,
+        "50": 0.6349061719433307,
+        "75": 0.702805208682644,
+        "95": 0.8398730247372183
+      },
+      "JUNIWARD|q95": {
+        "25": 0.6521980410237425,
+        "5": 0.5827506805061677,
+        "50": 0.6840312402640689,
+        "75": 0.7278989958874089,
+        "95": 0.7748641812883484
+      },
+      "UERD|q75": {
+        "25": 0.6822693969832498,
+        "5": 0.6107157181901429,
+        "50": 0.9829229904544502,
+        "75": 0.985283886812423,
+        "95": 0.9870580409846458
+      },
+      "UERD|q90": {
+        "25": 0.7770587636197895,
+        "5": 0.6458406609264452,
+        "50": 0.9837742766360305,
+        "75": 0.9857307683432484,
+        "95": 0.9876514928255339
+      },
+      "UERD|q95": {
+        "25": 0.7493743410281788,
+        "5": 0.7052640828816072,
+        "50": 0.9815995752708304,
+        "75": 0.9855009034247788,
+        "95": 0.9872375037192771
+      }
+    },
+    "source": "saved predictions only (no model reload, no images)"
+  },
+  "checkpoint_sha256": "d1bfaf93ffaf652ceada5dc8c8905024218c057ebaa063351564aacfa75864f7",
+  "device": "cuda:0",
+  "evaluated_epoch": 4,
+  "evaluation_verified": true,
+  "identities": {
+    "config_sha256": "7e1924574245607eba7cba724a362e2adc07992af03a5ee0a71d037f16cf1501",
+    "holdout_fold": 1,
+    "input_manifest_sha256": "ab90caf00e5b21bde712cbb0fccd9aa5a6a1d41dff743934f186ae0806f5c274",
+    "manifest_parquet_sha256": "5ea4ed4a243513931983b59b59636e0f1375d6cafa7df60d7b5e56d78352357b",
+    "population": "full_data_single_holdout",
+    "population_sha256": "95a76c39327b59cbcbe686ec557699a5a877891bcc22057a1837efaa6bb16a7d",
+    "split_folds_sha256": "7260e8bdb592cdd970d4cddace4321e68e8e1c81a085ab1ac7b223ca627b8d02"
+  },
+  "inference_wall_s": 362.45,
+  "kind": "retained_checkpoint_evaluation",
+  "limits": [
+    "single family holdout; not cross-validation or a leaderboard score",
+    "last completed epoch fallback; intended training budget remains incomplete",
+    "no new training, epoch selection on holdout labels, or CUDA replay equivalence claim"
+  ],
+  "measurement_status": "MEASURED",
+  "membership": {
+    "duplicates": 0,
+    "expected_rows": 60000,
+    "extra": 0,
+    "missing": 0,
+    "rows": 60000
+  },
+  "metrics": {
+    "by_quality": {
+      "75": {
+        "auc": 0.8135796000000001,
+        "band_contribution": [
+          0.5710606285714287,
+          0.2955979714285714
+        ],
+        "families": 5000,
+        "negatives": 5000,
+        "positives": 15000,
+        "rows": 20000,
+        "weighted_auc": 0.8666586000000002
+      },
+      "90": {
+        "auc": 0.7878558266666668,
+        "band_contribution": [
+          0.5706715523809525,
+          0.27741838571428573
+        ],
+        "families": 5000,
+        "negatives": 5000,
+        "positives": 15000,
+        "rows": 20000,
+        "weighted_auc": 0.8480899380952381
+      },
+      "95": {
+        "auc": 0.6838877733333334,
+        "band_contribution": [
+          0.5549803238095239,
+          0.21100110476190478
+        ],
+        "families": 5000,
+        "negatives": 5000,
+        "positives": 15000,
+        "rows": 20000,
+        "weighted_auc": 0.7659814285714287
+      }
+    },
+    "cover_vs_kind": {
+      "JMiPOD": {
+        "auc": 0.8738402111111111,
+        "band_contribution": [
+          0.5711314793650794,
+          0.3386058396825397
+        ],
+        "families": 15000,
+        "negatives": 15000,
+        "positives": 15000,
+        "rows": 30000,
+        "weighted_auc": 0.9097373190476191
+      },
+      "JUNIWARD": {
+        "auc": 0.5334620666666667,
+        "band_contribution": [
+          0.474832815873016,
+          0.1436279253968254
+        ],
+        "families": 15000,
+        "negatives": 15000,
+        "positives": 15000,
+        "rows": 30000,
+        "weighted_auc": 0.6184607412698414
+      },
+      "UERD": {
+        "auc": 0.9034228222222223,
+        "band_contribution": [
+          0.5713005396825398,
+          0.35965174603174604
+        ],
+        "families": 15000,
+        "negatives": 15000,
+        "positives": 15000,
+        "rows": 30000,
+        "weighted_auc": 0.9309522857142858
+      }
+    },
+    "four_class_accuracy": 0.5780666666666666,
+    "pooled": {
+      "auc": 0.7702416999999999,
+      "band_contribution": [
+        0.5704613523809524,
+        0.26494196666666664
+      ],
+      "families": 15000,
+      "negatives": 15000,
+      "positives": 45000,
+      "rows": 60000,
+      "weighted_auc": 0.8354033190476191
+    }
+  },
+  "model_sha256": "45dd6e1ca794a143545ce6a2e24ac682f92c466d54b3bead2dab5b431f75acfa",
+  "planned_epochs": 5,
+  "population": {
+    "by_kind": {
+      "Cover": 15000,
+      "JMiPOD": 15000,
+      "JUNIWARD": 15000,
+      "UERD": 15000
+    },
+    "by_quality": {
+      "75": 20000,
+      "90": 20000,
+      "95": 20000
+    },
+    "complete_families": 15000,
+    "families": 15000,
+    "rows": 60000
+  },
+  "predictions_sha256": "1ca5c151843d039fde53e416d0458463062aa5735a7018ccf031a5f9b91de2c0",
+  "result_label": "INCOMPLETE_REAL_DATA_BASELINE",
+  "run_id": "20261109T181911Z-baseline-effb0-fold1-e5",
+  "runtime_overrides": {
+    "eval.batch_size": 64,
+    "train.device": "cuda",
+    "train.num_workers": 2
+  },
+  "training_complete": false,
+  "training_source": {
+    "dirty": true,
+    "git_sha": "ca123aad0ca9c1de3c66f4877a4d5835c1b9363d",
+    "package_sha256": "0e2e8b3f42927a4406df72ff4076484b01519beccc12c96d4c42147317062edf"
+  },
+  "training_status": "interrupted",
+  "verification": {
+    "checks": {
+      "checkpoint_file_unchanged": true,
+      "checkpoint_sha256_matches": true,
+      "metrics_match_saved_predictions": true,
+      "model_sha256_matches": true,
+      "prediction_file_unchanged": true,
+      "predictions_sha256_matches": true,
+      "saved_rows_match_canonical_inputs": true,
+      "score_matches_probabilities": true
+    },
+    "observed": {
+      "max_abs_logit_delta": 0.0,
+      "max_abs_prob_delta": 0.0,
+      "weighted_auc_delta": 0.0,
+      "weighted_auc_rebuilt": 0.8354033190476191,
+      "weighted_auc_saved": 0.8354033190476191
+    },
+    "tolerance": {
+      "metric_atol": 0.0001,
+      "prob_atol": 0.001
+    }
+  },
+  "versions": {
+    "cuda_available": true,
+    "cuda_capability": "8.6",
+    "cuda_device": "NVIDIA RTX A4500",
+    "cudnn": 91002,
+    "numpy": "2.5.4",
+    "opencv": "5.0.0",
+    "pillow": "13.0.0",
+    "polars": "2.1.0",
+    "python": "3.12.13",
+    "timm": "1.0.31",
+    "torch": "2.14.1+cu126",
+    "torch_cuda": "12.6",
+    "torchvision": "0.29.1+cu126"
+  }
+}
