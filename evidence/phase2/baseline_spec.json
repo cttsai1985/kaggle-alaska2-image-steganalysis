@@ -1,0 +1,133 @@
+{
+  "budget": {
+    "derivation": {
+      "E": 5,
+      "cap_s": 10800,
+      "decision": "GO",
+      "derate": 0.7,
+      "epoch_s_full_fit": 1752.1,
+      "epochs_cap": 6,
+      "eval_s_full_valid": 469.9,
+      "margin_s": 900,
+      "projected_wall_s_at_derated_rate": 9761.0,
+      "projected_wall_s_at_steady_rate": 7132.8,
+      "rule": "E = min(E_cap, floor((cap - margin - startup - 2*eval - verify_overhead) / epoch_s))",
+      "startup_s": 19.7,
+      "train_eval_timeout_s": 10229,
+      "train_img_per_s_used": 137.0,
+      "train_rate_basis": "steady second-half rate x derate 0.7 (epoch average has one-time worker start-up; derate covers CPU contention variation)",
+      "usable_s": 8899.4,
+      "verify_overhead_s": 41.1
+    },
+    "enforcement": "timeout --kill-after=60 10229 around train+evaluate (cap minus the measured eval + verify time); SIGTERM closes the manifest as interrupted; verify then runs in a fresh process, all under nice -n 19 ionice -c3",
+    "runs": "one run, fresh run_id, nohup + log in the run dir; no duplicate launches",
+    "second_model": "only if an additional 2 h is available after the baseline wall time is measured",
+    "train_eval_timeout_s": 10229,
+    "wall_clock_cap_s": 10800
+  },
+  "checkpoint_selection_policy": {
+    "declared_at": "before training (this file is committed before launch)",
+    "holdout_labels_used_for_selection": false,
+    "if_interrupted": "the run is reported as incomplete; the last completed epoch is evaluated and labeled as such, never presented as the declared E-epoch baseline",
+    "policy": "last completed epoch (epoch E) is the model"
+  },
+  "competing_explanations_and_controls": [
+    {
+      "control": "frozen legacy family folds; 0 crossing families asserted",
+      "explanation": "family leakage inflates the score"
+    },
+    {
+      "control": "per-quality and kind x quality cohorts with counts",
+      "explanation": "the score is driven by easy cohorts (e.g. one JPEG quality)"
+    },
+    {
+      "control": "band contributions [0,0.4] vs [0.4,1] and both metrics on the same predictions",
+      "explanation": "weighted AUC and standard AUC disagree (low-TPR band weighted 2x)"
+    },
+    {
+      "control": "fixed last-epoch policy declared here",
+      "explanation": "epoch picked on holdout labels"
+    },
+    {
+      "control": "verify: exact holdout membership, canonical labels, fresh-process reload",
+      "explanation": "prediction / label / ID mismatch"
+    },
+    {
+      "control": "family-level bootstrap intervals (holdout sampling only; not seed variance)",
+      "explanation": "difference between cohorts is holdout sampling noise"
+    }
+  ],
+  "config": "configs/baseline_effb0_fold1.toml",
+  "config_sha256_with_overrides": "7e1924574245607eba7cba724a362e2adc07992af03a5ee0a71d037f16cf1501",
+  "declared_before_training": true,
+  "evaluation_question": "Does the fixed recipe give a holdout competition score traceable to its population, and is that pooled number broad across JPEG-quality cohorts and stego kinds or concentrated in some of them / in one ROC region?",
+  "kind": "baseline_spec",
+  "launch_conditions": {
+    "baseline_launch_contention": "recorded at launch in the run dir (host_contention.json) and in docs/phase2-baseline.md",
+    "host_contention_at_smoke_launch": {
+      "at_utc": "2026-11-09T18:12:33Z",
+      "cpu_psi": "some avg10=15.18 avg60=14.18 avg300=14.15 total=17127870233",
+      "gpu": "1074 MiB, 2 %",
+      "io_psi_full": "full avg10=0.00 avg60=0.11 avg300=1.04 total=20362232983",
+      "loadavg": "37.14 35.52 32.99",
+      "logical_threads": 36,
+      "our_priority": "nice -n 19, ionice -c3 (idle)",
+      "top_cpu_containers": "unity-run-42661793670-1-train=2349.63% wsl2-desktop-mono-ci-actions-runner=100.69% predictive-research-prefect-prefect-server-1=18.21% "
+    },
+    "operator_override": {
+      "date": "2026-11-09",
+      "decided_by": "operator (relayed to this agent by the workflow coordinator)",
+      "label": "OPERATOR_DECISION_2026-11-09",
+      "mitigation": "every train/eval/verify process runs under nice -n 19 ionice -c3 so other tenants (incl. a production CPU training container) get CPU and IO first; DataLoader workers capped at 6; no other process or container is touched",
+      "operator_quotes": [
+        "kk just do it we can use the gpi",
+        "just get it done asap"
+      ],
+      "what_changed": "launch-gate CPU criteria (cpu_free_threads, cpu_psi_some_avg60) recorded as ADVISORY; GPU (other use <= 2 GiB VRAM, <= 20 % util) and disk (>= 45 GiB free) stay BLOCKING",
+      "why_allowed": "the CPU thresholds were this project's own proposal from the phase-1 review, not an operator limit"
+    },
+    "throughput_limit": {
+      "gpu_util_mean_pct": 30.2,
+      "statement": "GPU mean utilization far below saturation while niced workers share a busy host: the input pipeline (JPEG decode on 6 workers), not the GPU, limits throughput"
+    }
+  },
+  "not_claimed": [
+    "no leaderboard score, rank or percentile",
+    "no cross-validation, no seed stability",
+    "no acquisition-domain generalization beyond this dataset"
+  ],
+  "overrides": [
+    "train.epochs=5"
+  ],
+  "population": {
+    "family_separation": "0 families and 0 identical files cross fit/valid (asserted before fit)",
+    "fit": "legacy folds 2-5: 240,000 rows / 60,000 families (Cover + 3 stego kinds per family)",
+    "name": "full_data_single_holdout",
+    "statement": "ONE single holdout (legacy fold 1, family-level). This is NOT cross-validation, and one training seed: no seed-stability or variance claim follows from it.",
+    "test_set": "not used for training, selection or evaluation; no Kaggle submission",
+    "valid": "legacy fold 1: 60,000 rows / 15,000 families; 15,000 rows per kind; 20,000 per quality"
+  },
+  "recipe": {
+    "backbone": "efficientnet_b0 (timm/efficientnet_b0.ra_in1k@1b5383e5f79c)",
+    "batch_size": 32,
+    "epochs": 5,
+    "input": "512x512 native RGB, no resize; train D4 flips/rot90 only; valid untransformed",
+    "loss": "4-class CE, label smoothing 0.05",
+    "num_workers": 6,
+    "optimizer": "AdamW lr 0.0005 wd 0.01",
+    "precision": "bf16 autocast, channels_last",
+    "schedule": "500 warmup steps then cosine to 0 over all E epochs",
+    "score": "1 - p_Cover",
+    "seed": 20261109
+  },
+  "reported_metrics": [
+    "competition weighted AUC (exact) and legacy implementation",
+    "standard AUC",
+    "ROC band contributions and shortfalls, operating points",
+    "per-quality, per stego kind, kind x quality cohorts with row/family/pos/neg counts",
+    "4-class confusion matrix",
+    "reload delta: max |p_rebuilt - p_saved| (tol 1e-3), |delta weighted AUC| (tol 1e-4)"
+  ],
+  "result_label": "REAL_DATA_BASELINE",
+  "smoke_receipt_run_id": "20261109T181233Z-smoke-effb0"
+}

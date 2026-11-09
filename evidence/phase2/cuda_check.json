@@ -1,0 +1,27 @@
+{
+  "captured_at_utc": "2026-11-09T17:02:20Z",
+  "command": "uv run python -c \"import torch;print(torch.cuda.is_available())\"  and  uv run pytest -q -m cuda",
+  "driver": "595.71",
+  "gpu_after_mem_util": "893 MiB, 3 %",
+  "gpu_before_mem_util": "893 MiB, 3 %",
+  "kind": "cuda_availability_check",
+  "label": "READINESS_ONLY_NOT_TRAINING",
+  "pytest_cuda_result": "1 passed, 76 deselected in 27.05s",
+  "test": "tests/test_cuda.py: efficientnet_b0 (random init), batch 4x3x64x64, bf16 autocast, forward+backward, peak reserved < 2 GiB",
+  "torch_cuda_is_available": true,
+  "versions": {
+    "cuda_available": true,
+    "cuda_capability": "8.6",
+    "cuda_device": "NVIDIA RTX A4500",
+    "cudnn": 91002,
+    "numpy": "2.5.4",
+    "opencv": "5.0.0",
+    "pillow": "13.0.0",
+    "polars": "2.1.0",
+    "python": "3.12.13",
+    "timm": "1.0.31",
+    "torch": "2.14.1+cu126",
+    "torch_cuda": "12.6",
+    "torchvision": "0.29.1+cu126"
+  }
+}

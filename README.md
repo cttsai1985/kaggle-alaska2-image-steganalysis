@@ -1,3 +1,8 @@
+> **Repository layout (2026 modernization).** The original solution is preserved unchanged under
+> [`legacy/`](legacy/README.md) (baseline `e00f0b8`). The maintained package is `src/alaska2/`
+> (`uv run python -m alaska2 validate|train|evaluate|predict|verify`); see
+> [docs/phase2-package.md](docs/phase2-package.md) and [docs/phase1-readiness.md](docs/phase1-readiness.md).
+
 ## Solution for ALASKA2 Image Steganalysis: Detect secret data hidden within digital images (Working in Progress)
 
 This is a solution for competition to detect secret data hidden within innocuous-seeming digital images. Current methods to detect secret data hidden within innocuous-seeming digital images that produce unreliable results, raising false alarms. This kind of solution can helps haw enforcement officers to combat criminals using hidden messages. More accurate methods could help identify communications from criminals whose hide information in plain sight.

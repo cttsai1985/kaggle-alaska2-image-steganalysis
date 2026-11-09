@@ -256,3 +256,33 @@ def test_parse_psi():
     txt = "some avg10=1.47 avg60=8.18 avg300=19.17 total=1\nfull avg10=0.84 avg60=6.79 avg300=13.94 total=2\n"
     assert parse_psi(txt) == {"some_avg60": 8.18, "full_avg60": 6.79}
     assert parse_psi(None) == {}
+
+
+def test_launch_gate_uses_measured_idle_cpu_over_loadavg():
+    """loadavg counts IO-blocked tasks; a measured idle share decides when present."""
+    busy_io = _host(loadavg_1=30.0, cpu_idle_fraction=0.8, cpu_window_s=5.0)
+    res = evaluate(busy_io, Thresholds())
+    assert res["decision"] == "GO" and res["checks"]["cpu_free_threads"]["value"] == pytest.approx(28.8)
+    res = evaluate(_host(loadavg_1=2.0, cpu_idle_fraction=0.3, cpu_window_s=5.0), Thresholds())
+    assert res["failing"] == ["cpu_free_threads"]
+
+
+def test_launch_gate_io_psi_is_advisory_only_with_a_warm_cache_probe():
+    hot_io = {"io_psi": {"some_avg60": 29.0, "full_avg60": 25.0}}
+    cold = evaluate(_host(**hot_io), Thresholds())
+    assert cold["failing"] == ["io_psi_full_avg60", "io_psi_some_avg60"]
+    warm = evaluate(_host(**hot_io, read_probe={"files": 600, "files_per_s": 9962.0}), Thresholds())
+    assert warm["decision"] == "GO" and warm["advisory_failing"] == ["io_psi_full_avg60", "io_psi_some_avg60"]
+    slow = evaluate(_host(**hot_io, read_probe={"files": 600, "files_per_s": 150.0}), Thresholds())
+    assert slow["failing"] == ["io_psi_full_avg60", "io_psi_some_avg60"]
+    assert "io_read_probe_files_per_s" in slow["advisory_failing"]
+
+
+def test_launch_gate_operator_advisory_override_keeps_gpu_and_disk_hard():
+    busy = _host(loadavg_1=35.0, cpu_psi={"some_avg60": 18.0})
+    assert evaluate(busy, Thresholds())["failing"] == ["cpu_free_threads", "cpu_psi_some_avg60"]
+    res = evaluate(busy, Thresholds(), ("cpu_free_threads", "cpu_psi_some_avg60"))
+    assert res["decision"] == "GO" and res["advisory_failing"] == ["cpu_free_threads", "cpu_psi_some_avg60"]
+    gpu_busy = _host(gpu={"index": 0, "memory_used_mib": 4000, "utilization_gpu_pct": 2})
+    with pytest.raises(ValueError, match="hard limit"):
+        evaluate(gpu_busy, Thresholds(), ("gpu_other_used_mib",))
