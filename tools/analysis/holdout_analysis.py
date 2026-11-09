@@ -28,6 +28,7 @@ import numpy as np
 import polars as pl
 
 from alaska2.constants import CLASSES
+from alaska2.identity import sha256_file
 from alaska2.metrics import binary_target, plain_auc, roc_vertices, weighted_auc_parts
 
 LEGACY_METRIC = Path(__file__).resolve().parents[2] / "legacy" / "alaska_utils" / "eval_metrics.py"
@@ -245,6 +246,9 @@ def analyse(pred_path: Path, out_dir: Path, n_boot: int, seed: int, make_plots: 
     meta = json.loads(pred_path.with_suffix(".json").read_text())
     if meta.get("split") != "valid":
         raise ValueError("analysis needs holdout (split = valid) predictions")
+    prediction_sha = sha256_file(pred_path)
+    if prediction_sha != meta["predictions_sha256"]:
+        raise ValueError("prediction hash differs from its sidecar")
     df = pl.read_parquet(pred_path)
     y = binary_target(df["label"].to_numpy())
     s = df["score"].to_numpy()
@@ -274,7 +278,7 @@ def analyse(pred_path: Path, out_dir: Path, n_boot: int, seed: int, make_plots: 
         "source": "saved predictions only (no model reload, no images)",
         "result_label": meta["result_label"],
         "population": "legacy fold 1 single holdout (family-level), not cross-validation",
-        "predictions_sha256": meta["predictions_sha256"],
+        "predictions_sha256": prediction_sha,
         "model_sha256": meta["model_sha256"],
         "epoch": meta["epoch"],
         "rows": df.height,
@@ -318,6 +322,8 @@ def analyse(pred_path: Path, out_dir: Path, n_boot: int, seed: int, make_plots: 
         },
         "redaction": "aggregates only; no image ids, family ids or per-row values",
     }
+    if sha256_file(pred_path) != prediction_sha:
+        raise ValueError("prediction hash changed during analysis")
     out_dir.mkdir(parents=True, exist_ok=True)
     if make_plots:
         out["plots"] = plots(df, out_dir, meta["result_label"])

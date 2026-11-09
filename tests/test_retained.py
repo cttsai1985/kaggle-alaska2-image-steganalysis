@@ -161,3 +161,19 @@ def test_never_promotes_fixture_to_real_model_result(retained):
     put(path, data)
     with pytest.raises(ValueError, match="baseline"):
         retained_receipt(run, pred)
+
+
+def test_rejects_analysis_metrics_inconsistent_with_verified_metrics(retained, tmp_path):
+    run, pred = retained
+    meta = json.loads((pred / "valid_epoch004.json").read_text())
+    analysis = tmp_path / "analysis.json"
+    put(
+        analysis,
+        {
+            "predictions_sha256": meta["predictions_sha256"],
+            "model_sha256": meta["model_sha256"],
+            "pooled": {"weighted_auc": 99.0},
+        },
+    )
+    with pytest.raises(ValueError, match="analysis.*metric"):
+        retained_receipt(run, pred, analysis)

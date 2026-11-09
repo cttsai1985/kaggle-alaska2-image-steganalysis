@@ -104,6 +104,16 @@ def retained_receipt(run_dir: Path, predictions_dir: Path, analysis_path: Path |
         analysis = json.loads(analysis_path.read_text())
         if any(analysis.get(key) != meta[key] for key in ("predictions_sha256", "model_sha256")):
             raise ValueError("analysis artifact identity differs from verified predictions")
+        comparisons = [(analysis.get("pooled", {}), ver["metrics"]["pooled"])]
+        for group in ("by_quality", "cover_vs_kind"):
+            comparisons.extend(
+                (analysis.get(group, {}).get(cohort, {}), expected)
+                for cohort, expected in ver["metrics"].get(group, {}).items()
+            )
+        if any(
+            actual.get(key) != value for actual, expected in comparisons for key, value in expected.items()
+        ):
+            raise ValueError("analysis metrics differ from independently verified metrics")
         analysis["result_label"] = report["result_label"]
         report["analysis"] = analysis
     return report
