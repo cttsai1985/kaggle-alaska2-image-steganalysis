@@ -15,6 +15,6 @@
   "measurement_status": "MEASURED",
   "network_disabled": true,
   "notebook_sha256": "ca498fb31752b039d4c6a963fab2c864c3d7e646b028496e26e3beae0e292b50",
-  "source_capsule_sha256": "bb7c45238d5e84e825da7bbc2dd0a0cd092c1e9c2526cda290db97cdb7b0a621",
-  "source_git_sha": "0b7213a7642df9aae6d8d717240729d45c181c74"
+  "source_capsule_sha256": "211e87bed1e5fc7938dadde6d6a3918dc9d8002fdf2c9060ad88a6202206b2c2",
+  "source_git_sha": "5c507ffe17f1708fae04801383356373149042f2"
 }

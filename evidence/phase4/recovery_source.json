@@ -1,0 +1,13 @@
+{
+  "archive_readback_verified": true,
+  "archive_sha256": "b43b005e74da23add202f0925cb273f55aa26c7a375ade41db2aaa44607ee4af",
+  "checkpoint_source_identity_matches": true,
+  "file_count": 92,
+  "kind": "sealed_recovery_source",
+  "measurement_status": "MEASURED",
+  "package_sha256": "0e2e8b3f42927a4406df72ff4076484b01519beccc12c96d4c42147317062edf",
+  "patch_sha256": "b38974ab7f5557eb8834cfdb9fbfa6c693daeb9b6a384bf2941545c93a0a5abf",
+  "recovery_worktree_removed": true,
+  "runtime_preserved_outside_worktrees": true,
+  "source_git_sha": "ca123aad0ca9c1de3c66f4877a4d5835c1b9363d"
+}
