@@ -1,0 +1,114 @@
+{
+  "all_evaluation_rows_retained": true,
+  "analysis_source": {
+    "dirty": false,
+    "git_sha": "9cd65e132fa68759cf48a575459612a94edfc8be",
+    "maintained_sha256": "4b70224bf1ec8d61b175eb7f2b1dad456567a120ab6f4bc8fd9519dd099c82c1",
+    "package_sha256": "75641cf596f542c8bd53c9d06b9ef0b023679a7116ef6d980596b10825c27bcd"
+  },
+  "analyzer_sha256": "2f0508351763fb4cdd502f6175a079610a545137efb24bb1c7fbd2f8a19d3f7d",
+  "by_kind": [
+    {
+      "enrichment_over_full_population_rate": 1.0,
+      "hard_rate": 0.05,
+      "hard_rows": 750,
+      "kind": "Cover",
+      "mean_true_class_probability": 0.3599101268417866,
+      "rows": 15000
+    },
+    {
+      "enrichment_over_full_population_rate": 0.058666666666666666,
+      "hard_rate": 0.0029333333333333334,
+      "hard_rows": 44,
+      "kind": "JMiPOD",
+      "mean_true_class_probability": 0.8455958165165507,
+      "rows": 15000
+    },
+    {
+      "enrichment_over_full_population_rate": 2.905333333333333,
+      "hard_rate": 0.14526666666666666,
+      "hard_rows": 2179,
+      "kind": "JUNIWARD",
+      "mean_true_class_probability": 0.6534588480294156,
+      "rows": 15000
+    },
+    {
+      "enrichment_over_full_population_rate": 0.036,
+      "hard_rate": 0.0018,
+      "hard_rows": 27,
+      "kind": "UERD",
+      "mean_true_class_probability": 0.8853628356354026,
+      "rows": 15000
+    }
+  ],
+  "by_quality": [
+    {
+      "enrichment_over_full_population_rate": 1.3079999999999998,
+      "hard_rate": 0.0654,
+      "hard_rows": 1308,
+      "mean_true_class_probability": 0.7105932376136247,
+      "quality": 75,
+      "rows": 20000
+    },
+    {
+      "enrichment_over_full_population_rate": 1.4000000000000001,
+      "hard_rate": 0.07,
+      "hard_rows": 1400,
+      "mean_true_class_probability": 0.6960519046067397,
+      "quality": 90,
+      "rows": 20000
+    },
+    {
+      "enrichment_over_full_population_rate": 0.292,
+      "hard_rate": 0.0146,
+      "hard_rows": 292,
+      "mean_true_class_probability": 0.6516005780470022,
+      "quality": 95,
+      "rows": 20000
+    }
+  ],
+  "diagnostic_is_weighted_auc_decomposition": false,
+  "families": 15000,
+  "fixed_half_probability_threshold": {
+    "false_flagged_cover": 13947,
+    "missed_stego": 774,
+    "threshold_tuned": false
+  },
+  "hard_mean_true_class_probability": 0.4159623911989593,
+  "hard_rows": 3000,
+  "kind": "heldout_hard_case_diagnostic",
+  "measurement_status": "MEASURED",
+  "other_mean_true_class_probability": 0.7002987233640431,
+  "producer": {
+    "checkpoint_epoch": 4,
+    "checkpoint_sha256": "d1bfaf93ffaf652ceada5dc8c8905024218c057ebaa063351564aacfa75864f7",
+    "classes": [
+      "Cover",
+      "JMiPOD",
+      "JUNIWARD",
+      "UERD"
+    ],
+    "held_out": true,
+    "identities": {
+      "input_manifest_sha256": "ab90caf00e5b21bde712cbb0fccd9aa5a6a1d41dff743934f186ae0806f5c274",
+      "population_sha256": "95a76c39327b59cbcbe686ec557699a5a877891bcc22057a1837efaa6bb16a7d",
+      "split_folds_sha256": "7260e8bdb592cdd970d4cddace4321e68e8e1c81a085ab1ac7b223ca627b8d02"
+    },
+    "model_sha256": "45dd6e1ca794a143545ce6a2e24ac682f92c466d54b3bead2dab5b431f75acfa",
+    "predictions_sha256": "1ca5c151843d039fde53e416d0458463062aa5735a7018ccf031a5f9b91de2c0",
+    "producing_fold": 1,
+    "purpose": "baseline",
+    "rows": 60000,
+    "split": "valid",
+    "training_complete": false
+  },
+  "refit_or_promotion_performed": false,
+  "rows": 60000,
+  "selection": {
+    "cover_rows": 750,
+    "fraction_within_each_binary_class": 0.05,
+    "rule": "largest binary log loss; canonical retained-row order breaks ties",
+    "stego_rows": 2250
+  },
+  "weighted_auc_reconciled": 0.8354033190476191
+}

@@ -1,20 +1,32 @@
-# Align ALASKA2 with the competition portfolio
+# Merge the ALASKA2 writeup alignment
 
-Standard practice: a solution-first narrative with paired leaderboard scores, source-backed Top %, a controlled modeling comparison, hard-case analysis and a usable prediction path. We differ because ALASKA2 already has an evaluated incomplete-run fallback and must preserve that scope while adopting the existing portfolio convention.
+Standard practice: align the solution narrative with the other reproduction repos.
+We differ because this model is an incomplete-run fallback and must retain that label.
+
+The operator requested writeup alignment, merge and cleanup. This PR delivers
+that scope. It does not add an HTTP service, rename the repository or claim a
+new release. Unfinished environment/serving work is preserved outside the worktree
+in a verified archive before cleanup.
 
 ## Scope
-- Presentation/evidence: README.md; docs/{results,problem-and-value,modeling-study,error-analysis,requirements-audit,portfolio-standard,serving,reproduction}.md; docs/{leaderboard-context,historical-submissions,public-profile,modeling-study,error-analysis,canary-validation}.json; docs/figures/; notebooks/01-method-and-rerun.ipynb.
-- Reusable analysis: tools/analysis/{modeling_study,error_analysis}.py; tools/notebooks/build_walkthrough.py; scripts/{check_portfolio,analyze_hard_cases}.py (thin/shared entry points only).
-- Actual model interface: src/alaska2/serving.py; tests/test_serving.py; tests/test_modeling_study.py; tests/test_portfolio.py.
-- Environment/release: pyproject.toml, uv.lock, src/alaska2/__init__.py, Dockerfile, .github/workflows/ci.yml.
-- Metadata after merge: rename GitHub repository to kaggle-alaska2-solution, update local origin and reviewed public description; retain local checkout/mount/service identities. Publish a corrected canary from merged source and verify downloaded assets. Preserve previous release bytes/history.
 
-## Sequence and proof
-1. Recover paired historical submissions through authenticated read-only Kaggle API. Use dated public leaderboard export, exact Decimal comparisons, unique scored teams and tie intervals; never assign a percentile to holdout/private populations.
-2. Compare fixed union-of-stego probability vs maximum stego-class probability on identical saved holdout predictions. Declare before measuring; no refit, learned weights, threshold tuning, row removal or default change. Analyze fixed hard cohorts and input→representation→prediction failures with aggregate-only output.
-3. Put leaderboard table immediately after short opening, then modeling decision/error insight and inference. Keep hardware/provenance mechanics in runbook. Map all R01–R26 honestly; preserve open production requirements.
-4. Add and verify actual model→MLflow package→fresh-workspace HTTP parity on private real inputs, with invalid-request rejection and cleanup; no shared-service deployment or retraining.
-5. Adopt shared scaffold/checker from infra; execute notebook and relevant tests, obtain review and current-source CI, merge, rename coherently, release and read back artifacts. Remove only merged/unoccupied branches and worktrees.
+README.md; implementation_plan.md; docs/{results,modeling-study,error-analysis,
+requirements-audit,portfolio-standard,serving}.md; docs/{historical-submissions,
+leaderboard-context,modeling-study,error-analysis,portfolio}.json;
+scripts/check_portfolio.py; .github/workflows/portfolio.yaml;
+tools/analysis/{modeling_study,error_analysis}.py;
+tests/{test_readme,test_modeling_study,test_portfolio}.py.
 
-## Boundaries
-Keep raw rows/images/checkpoints/credentials/private logs outside Git. Preserve original source, weak results, incomplete training and historical receipts. No new Kaggle submission or training/model search. CPU analysis and bounded private-input inference only; shared live services/volumes/ports/credentials remain untouched.
+## Delivery and proof
+
+1. Preserve the merged author attribution and paired historical results.
+2. Link the executed controlled readout comparison and hard-case analysis,
+   retaining source hashes, unfavorable outcomes and limitations.
+3. Map the shared requirements to evidence and explicit remaining work.
+4. Guard the result table, analysis receipts and links in CI. Run the CPU suite,
+   review the final diff, resolve master conflicts, push and merge.
+5. Read back merged source/checks. Remove only clean task worktrees after
+   their source and outstanding changes have verified copies.
+
+Risk: accidentally assigning historical leaderboard scores to the retained
+baseline or claiming unfinished serving/release work. Preserve those boundaries.

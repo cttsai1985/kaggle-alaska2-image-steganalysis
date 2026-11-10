@@ -1,67 +1,53 @@
-# ALASKA2: Detecting Hidden Data in Images
+# ALASKA2: My Image Steganalysis Solution
 
-An image can look ordinary while carrying an embedded message. The [ALASKA2 challenge](https://www.kaggle.com/c/alaska2-image-steganalysis) asks a model to distinguish an unchanged JPEG from versions produced by different steganography methods. This solution uses an ImageNet-pretrained EfficientNet and keeps every source image’s variants together during validation.
+My solution to the [Kaggle ALASKA2 competition](https://www.kaggle.com/competitions/alaska2-image-steganalysis), by **Chia-Ta Tsai**. Steganography changes an image to carry a hidden message while leaving its visible subject intact. The [ALASKA2 challenge](https://www.kaggle.com/competitions/alaska2-image-steganalysis) asks for a probability that a JPEG contains embedded data. My historical solution combines EfficientNet and SE-ResNeXt predictions with augmentation and stacking; the maintained workflow provides a reloadable EfficientNet baseline and sample-ordered predictions.
 
-The first finding concerns the evaluation unit. **MEASURED:** a diagnostic split of individual files puts siblings of **59,460 of 60,000 validation images** in training. The original solution already avoided that boundary mistake by splitting source images before expanding their variants. The maintained pipeline preserves that design and also checks byte-identical images across families. This is evidence about split integrity, not a measured increase in model accuracy.
-
-The retained EfficientNet checkpoint reaches **MEASURED weighted AUC 0.83540** on the complete family holdout. Detection is weaker for JUNIWARD and the quality-95 cohort than the pooled score suggests. This is a verified fallback from incomplete training: four epochs completed against a declared five-epoch recipe. [Recorded results and limits](docs/results.md).
-
-[Problem and value](docs/problem-and-value.md) · [Results](docs/results.md) · [Executed walkthrough](notebooks/01-method-and-rerun.ipynb) · [Run the solution](docs/reproduction.md)
-
+<!-- portfolio-results:start -->
 ## Results
 
-| Experiment | Evaluation scope | Recorded outcome |
-| --- | --- | --- |
-| Historical solution | Competition submissions | Scores and submission provenance have not been recovered for this write-up. |
-| Retained EfficientNet checkpoint | Complete single family holdout; incomplete training | **MEASURED weighted AUC 0.83540; AUC 0.77024**. |
-| CUDA smoke | Explicit family subset | Readiness and checkpoint reload passed; not a model result. |
-| CPU fixture | Synthetic images | Training, reload and recovery contracts tested; not a model result. |
+**Leaderboard scores — weighted AUC ↑.**
 
-No historical or modern leaderboard score is established by these receipts. The holdout score remains separate from a scored competition submission. [Evidence and completion status](docs/results.md).
+| Model / submission | Public LB | Private LB | Public Top % |
+|---|---:|---:|---:|
+| Historical LightGBM stacker (2020-07-20) | 0.932 | 0.916 | **7.31%** |
+| Historical TTA/LightGBM stacker (2020-07-18) | 0.928 | 0.917 | **10.96%** |
+| Historical rank-averaged ensemble (2020-07-20) | 0.930 | 0.916 | **9.04%** |
+| Maintained EfficientNet-B0 (single holdout) | Not submitted | Not submitted | Not applicable |
 
-## Where the pooled result hides weakness
+Public Top % uses the **2026-11-10 public leaderboard snapshot** (score-equivalent comparison, not an awarded final rank). [Detailed results](docs/results.md) · [Reference ranks, ties and calculation](docs/leaderboard-context.json).
 
-**MEASURED:** quality-cohort weighted AUC is **0.86666 / 0.84809 / 0.76598** at quality 75 / 90 / 95. Each cohort contains 20,000 files from 5,000 source families. Cover-versus-JUNIWARD weighted AUC is **0.61846**, versus **0.90974** for JMiPOD and **0.93095** for UERD.
+Private Top % is unavailable without a matched private leaderboard; OOF/holdout results have no leaderboard percentile.
+<!-- portfolio-results:end -->
 
-Equal cohort sizes do not make the model equally effective across methods. The report keeps these slices visible instead of choosing weights against the reported holdout. Quality cohorts contain different source families, so their gap does not establish a causal compression effect. [Cohorts, operating points and limits](docs/results.md#where-the-pooled-score-hides-weakness).
+## Why the probability of any embedding method matters
 
-![Measured holdout performance across quality cohorts and embedding methods](docs/figures/quality-and-method.png)
+A file can contain a message from JMiPOD, JUNIWARD or UERD. The target combines those possibilities, so the solution uses `1 − P(Cover)` from its four-class model.
 
-## Keep source images together
+**MEASURED controlled comparison:** on the same saved checkpoint and complete family holdout, that readout reaches **0.83540 weighted AUC**. Using only the largest stego-class probability reaches **0.76748**, a change of **−0.06792**. The checkpoint, JPEG processing, rows and labels are fixed; the ranking actually changes. The loss appears in every recorded quality and embedding-method comparison. Retain the union-probability readout for this model. [Comparison, variation and remaining question](docs/modeling-study.md).
 
-The learning target belongs to a file, but the independence boundary is its source image. Cover and corresponding JMiPOD, JUNIWARD and UERD variants share image content. Randomly separating those files can put near-identical content on both sides of validation.
+## Which images remain difficult?
 
-**MEASURED:** the retained family assignments have no families spanning folds. The audit also found a byte-identical Cover pair under different family names; both belong to the same fold. The pipeline checks both family membership and byte identity before fitting. Filename grouping alone would not detect that second case. [Split audit](evidence/phase1/split_audit.json) · [Dataset audit](evidence/phase1/dataset_audit.json).
+**MEASURED:** JUNIWARD accounts for **2,179 of the 2,250 hardest stego predictions** under the fixed confidence-error diagnostic. Its Cover-versus-method weighted AUC is **0.61846**, compared with **0.90974** for JMiPOD and **0.93095** for UERD. Combining class probabilities helps the overall ranking and leaves a substantial method-specific weakness.
 
-That establishes the intended partition on this snapshot. It does not establish generalization to other cameras or embedding methods, and no matched model comparison has measured the effect of the diagnostic leaky split.
+The quality-95 cohort has the weakest weighted AUC (**0.76598**), yet is underrepresented among the most extreme confidence errors. Ranking separation and confidence failures identify different problems. Quality cohorts also contain different source images, so these observations do not prove that compression causes the gap. [Hard-case rule, competing explanations and next experiment](docs/error-analysis.md).
 
-## Model and metric
+![Measured holdout performance across JPEG-quality cohorts and embedding methods](docs/figures/quality-and-method.png)
 
-EfficientNet predicts the Cover, JMiPOD, JUNIWARD and UERD classes; the competition probability is `1 - P(Cover)`. Training uses flips and right-angle rotations that permute pixels without interpolation. The native image dimensions, decoder, normalization, pretrained-weight revision and class order travel with the run.
+## Keep the source image out of its own validation set
 
-The competition uses weighted AUC. Tests derived from the metric definition exposed a difference in the historical implementation when tied scores cross a weighting boundary. **MEASURED on an all-tied fixture:** the exact implementation returns **0.5857**, while the legacy implementation returns **0.5714**. These are metric-fixture values, not model scores. Continuous random-score fixtures agree between implementations; they also agree on the retained model’s predictions, so their fixture difference does not explain this score. [Metric tests](tests/test_metrics.py) · [Implementation decisions](docs/phase2-package.md).
+Cover and its embedded variants share image content. The original solution grouped source images before expanding variants; the maintained pipeline preserves that boundary and also checks byte identity across roles. **MEASURED:** the retained holdout has no source families or byte-identical groups crossing the fit/validation boundary. A diagnostic file split exposes siblings of **59,460 of 60,000** validation files to fitting; no accuracy gain from that diagnostic is claimed. [Evaluation protocol and limits](docs/results.md).
 
-## A checkpoint is not a completed evaluation
+## From a JPEG to a prediction
 
-The interrupted baseline retains checkpoint hashes, completed-epoch statistics and an accepted continuation from the last completed epoch. The continuation records the same source, package and runtime identity. That supports a narrow operational decision: preserve valid training state and reject a resume under changed provenance.
+The predictor decodes the native JPEG, retains its image dimensions, applies the recorded normalization and produces four class probabilities. Its application output is the probability of any embedded message. The same class order, preprocessing and checkpoint travel with prediction/export. The historical stacking records belong to their own submissions; the retained baseline does not inherit their leaderboard scores.
 
-**MEASURED:** independent checkpoint reload reconstructs all 60,000 holdout predictions and all 5,000 test predictions with maximum probability delta 0.0. Holdout metric delta is 0.0. The training manifest remains interrupted: successful evaluation preserves that incomplete status, and does not establish artifact delivery. CPU fixture tests show deterministic resumed weights; that training-replay equivalence has not been demonstrated for this interrupted CUDA run. [Verified fallback receipt](evidence/phase2/retained_evaluation.json) · [Recovery limits](docs/results.md#interrupted-training).
+The maintained baseline is a **four-completed-epoch fallback from a declared five-epoch run**, evaluated on a complete single family holdout. Independent reload reconstructs its full holdout and test predictions. Its **0.83540 holdout weighted AUC** has no leaderboard percentile and cannot be compared directly with a scored competition submission. [Results, saved-model interface and limitations](docs/results.md) · [Prediction contract](docs/serving.md).
 
-## From predictions to a verified handoff
+## Reproduce the result
 
-**MEASURED:** the retained model exports all 5,000 supplied test IDs in sample order. Its offline bundle contains 10 checksum-verified files. Controlled incomplete, corrupt and post-publish transfers each recover under the same experiment ID without training or inference being repeated. Destination ownership cannot be bypassed with a different local state directory. [Provenance and recovery evidence](evidence/phase3/provenance_delivery.json).
+Start with the [executed walkthrough](notebooks/01-method-and-rerun.ipynb) for the problem, results and modeling decisions. The [runbook](docs/reproduction.md) contains local, Docker/Jupyter/dev-container and authorized competition-input commands. The [offline Kaggle path](docs/kaggle.md) records its actual hosted-execution status. Public CPU fixtures test contracts and remain explicitly labeled.
 
-The source audit does not establish a leakage-safe full OOF matrix for the historical cached stacker. Learned stacking remains deferred, and the real-model output stays labeled single-model. The fixed probability mean is tested on synthetic fixtures; no real ensemble improvement is claimed. [Why these contracts](docs/consumer-contract.md).
-
-This handoff uses a filesystem destination. The versioned canonical tracking/storage proposal does not create a namespace, and no MLflow/S3 service delivery is claimed.
-
-## Reproduce
-
-The [reproduction guide](docs/reproduction.md) separates public CPU contract tests from authorized competition-data and CUDA execution. It includes the supported CLI, input manifests, resource checks and saved-checkpoint verification commands.
-
-The [executed learning notebook](notebooks/01-method-and-rerun.ipynb) combines both decision stories with a labeled CPU fixture that trains, reloads, exports and recovers a handoff. The locked native environment, Docker JupyterLab and dev container share the maintained package. Lab authentication and actual mount behavior have [measured readback](evidence/phase4/lab_validation.json). The [offline Kaggle entry](docs/kaggle.md) is provided with hosted execution explicitly unverified. Prediction provenance and offline recovery are recorded in [the consumer contract](docs/consumer-contract.md). No real ensemble improvement or deployed detection service is established.
-
-The maintained implementation is in `src/alaska2/`; experiment recipes are in `configs/`, aggregate evidence in `evidence/`, and contract tests in `tests/`. The original solution and attribution are preserved in [legacy/](legacy/README.md). The [readiness report](docs/phase1-readiness.md) and [package report](docs/phase2-package.md) retain the detailed engineering record.
+The [problem/value discussion](docs/problem-and-value.md) separates detection quality from a prospective analyst workflow. [Evidence and requirements](docs/requirements-audit.md) retain the completed checks and open production work. Code is in `src/alaska2/`; original source and attribution remain in [legacy/](legacy/README.md).
 
 ## License
 

@@ -1,0 +1,23 @@
+[
+  {
+    "date": "2020-07-20T12:31:56.390000",
+    "description": "tta ens stacker, lightgbm; train on valid .953",
+    "privateScore": "0.916",
+    "publicScore": "0.932",
+    "ref": 16590590
+  },
+  {
+    "date": "2020-07-18T00:27:54.530000",
+    "description": "tta4 * 4 stacking * lgbm hpo 200 train",
+    "privateScore": "0.917",
+    "publicScore": "0.928",
+    "ref": 16560065
+  },
+  {
+    "date": "2020-07-20T19:11:26.140000",
+    "description": "ranked average lgbm, xgboost, dart, catboost",
+    "privateScore": "0.916",
+    "publicScore": "0.930",
+    "ref": 16594754
+  }
+]
