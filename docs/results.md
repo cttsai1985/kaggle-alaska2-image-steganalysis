@@ -1,6 +1,6 @@
 # Results and evaluation limits
 
-The retained model has a verified real-data result: **MEASURED weighted AUC 0.83540** on the complete family holdout. It is the predeclared fallback from an interrupted training run, not the intended completed recipe. No historical or modern leaderboard score is established.
+The retained model has a verified real-data result: **MEASURED weighted AUC 0.83540** on the complete family holdout. It is the predeclared fallback from an interrupted training run, not the intended completed recipe. Historical submission scores have now been recovered separately; no modern leaderboard submission is established.
 
 ## Evaluation scope
 
@@ -8,13 +8,21 @@ The retained model has a verified real-data result: **MEASURED weighted AUC 0.83
 
 | Experiment | Scope | Result |
 | --- | --- | --- |
-| Historical submissions | Competition leaderboard | Scores and submission provenance have not been recovered. |
+| Historical LightGBM stacker (2020-07-20) | Competition submission | **MEASURED public 0.932 / private 0.916**. |
+| Historical TTA/LightGBM stacker (2020-07-18) | Competition submission | **MEASURED public 0.928 / private 0.917**. |
+| Historical rank-averaged ensemble (2020-07-20) | Competition submission | **MEASURED public 0.930 / private 0.916**. |
 | Retained EfficientNet checkpoint | Complete family holdout; incomplete training | **MEASURED weighted AUC 0.83540; ordinary AUC 0.77024**. |
 | Intended fixed-budget recipe | Declared training completion | Incomplete; no completed-recipe result is claimed. |
 | CUDA smoke | Explicit family subset | Readiness only, not the baseline result. |
 | CPU fixture | Synthetic images | Contract tests, not a model result. |
 
 [Verified evaluation and analysis](../evidence/phase2/retained_evaluation.json) · [Test-prediction reconstruction](../evidence/phase2/retained_test_verification.json) · [Runtime/image receipt](../evidence/phase2/retained_execution.json).
+
+## Historical submission provenance
+
+The [paired submission records](historical-submissions.json) retain dates, submission references, descriptions, and public/private scores recovered from the authenticated Kaggle submission response. These are historical account results, not results reproduced by the maintained baseline.
+
+The [public leaderboard reference](leaderboard-context.json) retains the dated export hash, exact score histogram, unique scored-team population and tie intervals. **MEASURED:** the public 0.932 score corresponds to positions 80–91 among 1,095 reference teams; the compact README uses 100 × 80 / 1,095 = 7.31%. The 0.928 and 0.930 scores similarly use their first tied positions. This is score-equivalent reference context, not an awarded rank. No matched private reference was recovered, so private rank and Top % remain unavailable.
 
 ## Where the pooled score hides weakness
 
