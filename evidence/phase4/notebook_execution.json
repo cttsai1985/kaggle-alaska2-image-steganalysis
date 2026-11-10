@@ -16,12 +16,12 @@
   "image_outputs": 1,
   "kind": "executed_walkthrough",
   "measurement_status": "MEASURED",
-  "notebook_sha256": "219cee012ae13c2e5375c97f89e596f8a7d32a701a8b4a2a5daed147906e62c4",
+  "notebook_sha256": "f3c2ef71914b05570c89602b1dd6585bbba3d893089d913c07dd9f12ed795649",
   "real_model_training_in_notebook": false,
   "source": {
     "dirty": false,
-    "git_sha": "0b7213a7642df9aae6d8d717240729d45c181c74",
-    "maintained_sha256": "3f424cdb0e6d9fcb11eda54c2c4c4b0c5b99e33e735134ee5cdc93789566593a",
+    "git_sha": "5c507ffe17f1708fae04801383356373149042f2",
+    "maintained_sha256": "be7fd26ae61f4999b9600341f95b47eaa0a0f1b9705be5794bffb01e95b3e1db",
     "package_sha256": "75641cf596f542c8bd53c9d06b9ef0b023679a7116ef6d980596b10825c27bcd"
   },
   "sources": {
