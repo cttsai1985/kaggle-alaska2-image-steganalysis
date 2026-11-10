@@ -55,7 +55,7 @@ The [fixed baseline specification](../evidence/phase2/baseline_spec.json) record
 
 The bounded-run wrapper is `tools/runs/bounded_run.sh CONFIG RUN_ID CAP_S [KEY=VALUE ...]`. It wraps training/evaluation in a timeout and attempts an independent verify only after successful training and saved predictions. It does not run the resource gate itself. Use an approved fresh run identity and budget; an existing output directory is refused. No additional training budget is implied by this guide.
 
-Resume uses `python -m alaska2 train --config CONFIG --resume RUN_DIR` and checks source, package, runtime, config, input and split provenance. The existing interrupted checkpoint belongs to its preserved recovery worktree. A new documentation commit changes Git provenance, so a resume from the latest checkout is not an equivalent execution. Never edit checkpoint provenance to bypass that rejection.
+Resume uses `python -m alaska2 train --config CONFIG --resume RUN_DIR` and checks source, package, runtime, config, input and split provenance. The interrupted checkpoint belongs to its sealed historical source capsule (Git revision plus the exact dirty-source patch and verified archive). The matching Python runtime is retained outside worktrees. Restore that source and its recorded environment for any authorized continuation. A new documentation commit changes Git provenance, so a resume from the latest checkout is not an equivalent execution. Never edit checkpoint provenance to bypass that rejection.
 
 ## Saved-model evaluation and verification
 

@@ -28,6 +28,7 @@ def test_walkthrough_executes_with_saved_outputs_and_explicit_fixture_scope(tmp_
     saved = nbformat.read(output, as_version=4)
     assert receipt["executed"] is True and receipt["error_cells"] == 0
     assert receipt["image_outputs"] >= 1
+    assert "IProgress not found" not in nbformat.writes(saved)
     assert receipt["fixture"]["result_label"] == "FIXTURE_NOT_A_MODEL_RESULT"
     assert receipt["fixture"]["recovery_state"] == "delivered"
     assert all(cell.execution_count is not None for cell in saved.cells if cell.cell_type == "code")

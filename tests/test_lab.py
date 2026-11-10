@@ -74,9 +74,14 @@ def test_jupyter_accepts_the_actual_server_configuration(tmp_path, monkeypatch):
     token = tmp_path / "token"
     token.write_text("x" * 40)
     monkeypatch.setenv("ALASKA2_LAB_TOKEN_FILE", str(token))
-    config_dir = Path(__file__).resolve().parents[1] / "docker"
+    source_config = Path(__file__).resolve().parents[1] / "docker/jupyter_server_config.py"
+    config_dir = tmp_path / "checkout/docker"
+    config_dir.mkdir(parents=True)
+    (config_dir / source_config.name).write_bytes(source_config.read_bytes())
     config = PyFileConfigLoader("jupyter_server_config.py", path=str(config_dir)).load_config()
     app = ServerApp(config=config)
+    assert set(config.ServerApp) <= set(app.traits()), "unknown ServerApp configuration"
+    assert app.root_dir == str(config_dir.parent)
     assert app.log_level == 30
     assert config.IdentityProvider.token == "x" * 40
     assert app.open_browser is False

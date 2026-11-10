@@ -12,6 +12,5 @@ c.IdentityProvider.token = secret
 c.ServerApp.ip = "0.0.0.0"
 c.ServerApp.port = 8888
 c.ServerApp.open_browser = False
-c.ServerApp.root_dir = "/workspace"
+c.ServerApp.root_dir = str(Path(__file__).resolve().parents[1])
 c.ServerApp.log_level = "WARN"
-c.ServerApp.show_banner = False
