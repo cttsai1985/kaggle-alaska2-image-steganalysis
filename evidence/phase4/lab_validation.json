@@ -12,8 +12,9 @@
   "running_uid": "1000",
   "source": {
     "dirty": true,
-    "git_sha": "e376e9a934c7a6c813cc784ad927115e16dfbcf3",
-    "package_sha256": "c7b4f8b383174f0fca7e7adbcfe958345f40ecee9429872022d4aa8717027d1e"
+    "git_sha": "0b7213a7642df9aae6d8d717240729d45c181c74",
+    "maintained_sha256": "9544c75be93da142f410660898c39b8dc33dfef8ac6803178d138edf617489ac",
+    "package_sha256": "75641cf596f542c8bd53c9d06b9ef0b023679a7116ef6d980596b10825c27bcd"
   },
   "token_printed": false,
   "token_read_only": true,

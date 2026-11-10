@@ -1,0 +1,20 @@
+{
+  "executed": true,
+  "execution_environment": "local Docker --network none; Kaggle input/output mount paths substituted",
+  "fixture": {
+    "csv_order_verified": true,
+    "holdout_rows": 16,
+    "max_probability_delta": 0.0,
+    "model_sha256": "a4e40c5f2f03dc532daaa91be9dc5789e9969ba570c53ff5f669af37ce174307",
+    "recovery_state": "delivered",
+    "result_label": "FIXTURE_NOT_A_MODEL_RESULT",
+    "test_rows": 5
+  },
+  "hosted_kaggle_execution": "unverified",
+  "kind": "offline_entry_local_validation",
+  "measurement_status": "MEASURED",
+  "network_disabled": true,
+  "notebook_sha256": "ca498fb31752b039d4c6a963fab2c864c3d7e646b028496e26e3beae0e292b50",
+  "source_capsule_sha256": "bb7c45238d5e84e825da7bbc2dd0a0cd092c1e9c2526cda290db97cdb7b0a621",
+  "source_git_sha": "0b7213a7642df9aae6d8d717240729d45c181c74"
+}
