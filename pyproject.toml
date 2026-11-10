@@ -26,6 +26,8 @@ dev = ["pytest>=8.3", "ruff>=0.9"]
 probe = []
 # CPU-only plots for the phase-2 holdout analysis (saved predictions only)
 analysis = ["matplotlib>=3.9"]
+lab = ["jupyterlab>=4.3,<5", "nbformat>=5.10,<6", "nbclient>=0.10,<1", "nbconvert>=7.16,<8", "ipykernel>=6.29,<8"]
+release = ["build>=1.2,<2", "hatchling>=1.25,<2"]
 
 [build-system]
 requires = ["hatchling>=1.25"]

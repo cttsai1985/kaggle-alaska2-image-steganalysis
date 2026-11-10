@@ -2,6 +2,8 @@
 
 Standard practice: one maintained package across CLI, notebook and container, with an executed teaching artifact and a release built from merged source. ALASKA2 differs because the retained real model is an explicitly incomplete-run fallback; preserve that scope everywhere and do not claim hosted Kaggle execution without evidence.
 
+Operator update: hold release until the maintained refactor is complete, independently reviewed and verified. Archived original code is retained for attribution; deferred learned stacking is a research limitation, not a second maintained implementation.
+
 ## Scope
 
 - Environment: `.gitignore`, `.dockerignore`, `pyproject.toml`, `uv.lock`, `Dockerfile`, `compose.yml`, `compose.gpu.yml`, `docker/jupyter_server_config.py`, `.devcontainer/devcontainer.json`, `tools/lab.py`.

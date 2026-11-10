@@ -1,0 +1,44 @@
+{
+  "code_cells": 7,
+  "error_cells": 0,
+  "executed": true,
+  "figure_sha256": "5a76c2037014670809a941b7aebca4f8ff1f7ac15e0df7ce3722838cd2446680",
+  "fixture": {
+    "csv_order_verified": true,
+    "holdout_rows": 16,
+    "max_probability_delta": 0.0,
+    "model_sha256": "a4e40c5f2f03dc532daaa91be9dc5789e9969ba570c53ff5f669af37ce174307",
+    "recovery_state": "delivered",
+    "result_label": "FIXTURE_NOT_A_MODEL_RESULT",
+    "test_rows": 5
+  },
+  "hosted_kaggle_execution": "unverified",
+  "image_outputs": 1,
+  "kind": "executed_walkthrough",
+  "measurement_status": "MEASURED",
+  "notebook_sha256": "6758b46b07c243914acad4264c832676bfb8514b600c4eb0b79ae46c7e1fa319",
+  "real_model_training_in_notebook": false,
+  "source": {
+    "dirty": null,
+    "git_sha": null,
+    "package_sha256": "0f7e98d9da0c0578f7c4fd5c28d5c30b0137a32a93b9652c900051a369d33f45"
+  },
+  "sources": {
+    "delivery": "aaec5e0fc136435b606fba94b1aca0584bc7795e4387e545ed6cf575237a6221",
+    "evaluation": "a73791b845001d0142878687de35638401b07fead8f80c466be8443b97f367ee",
+    "split": "d4cdb3f2a88cacca4962a09647bd8aef553d33209c543f774b2998d53771ed8d"
+  },
+  "versions": {
+    "cuda_available": false,
+    "cudnn": 91002,
+    "numpy": "2.5.4",
+    "opencv": "5.0.0",
+    "pillow": "13.0.0",
+    "polars": "2.1.0",
+    "python": "3.12.13",
+    "timm": "1.0.31",
+    "torch": "2.14.1+cu126",
+    "torch_cuda": "12.6",
+    "torchvision": "0.29.1+cu126"
+  }
+}

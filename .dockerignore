@@ -1,0 +1,17 @@
+.git
+.venv
+.local
+.env
+source_revision.json
+__pycache__
+.pytest_cache
+.ruff_cache
+*.parquet
+*.pt
+*.pth
+*.pkl
+*.zip
+input
+outputs
+data
+artifacts

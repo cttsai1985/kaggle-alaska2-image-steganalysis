@@ -6,7 +6,7 @@ The first finding concerns the evaluation unit. **MEASURED:** a diagnostic split
 
 The retained EfficientNet checkpoint reaches **MEASURED weighted AUC 0.83540** on the complete family holdout. Detection is weaker for JUNIWARD and the quality-95 cohort than the pooled score suggests. This is a verified fallback from incomplete training: four epochs completed against a declared five-epoch recipe. [Recorded results and limits](docs/results.md).
 
-[Problem and value](docs/problem-and-value.md) · [Results](docs/results.md) · [Run the solution](docs/reproduction.md)
+[Problem and value](docs/problem-and-value.md) · [Results](docs/results.md) · [Executed walkthrough](notebooks/01-method-and-rerun.ipynb) · [Run the solution](docs/reproduction.md)
 
 ## Results
 
@@ -17,13 +17,15 @@ The retained EfficientNet checkpoint reaches **MEASURED weighted AUC 0.83540** o
 | CUDA smoke | Explicit family subset | Readiness and checkpoint reload passed; not a model result. |
 | CPU fixture | Synthetic images | Training, reload and recovery contracts tested; not a model result. |
 
-No historical or modern leaderboard score is established by these receipts. A holdout score, once available, will remain separate from a scored competition submission. [Evidence and completion status](docs/results.md).
+No historical or modern leaderboard score is established by these receipts. The holdout score remains separate from a scored competition submission. [Evidence and completion status](docs/results.md).
 
 ## Where the pooled result hides weakness
 
 **MEASURED:** quality-cohort weighted AUC is **0.86666 / 0.84809 / 0.76598** at quality 75 / 90 / 95. Each cohort contains 20,000 files from 5,000 source families. Cover-versus-JUNIWARD weighted AUC is **0.61846**, versus **0.90974** for JMiPOD and **0.93095** for UERD.
 
 Equal cohort sizes do not make the model equally effective across methods. The report keeps these slices visible instead of choosing weights against the reported holdout. Quality cohorts contain different source families, so their gap does not establish a causal compression effect. [Cohorts, operating points and limits](docs/results.md#where-the-pooled-score-hides-weakness).
+
+![Measured holdout performance across quality cohorts and embedding methods](docs/figures/quality-and-method.png)
 
 ## Keep source images together
 
@@ -57,7 +59,7 @@ This handoff uses a filesystem destination. The versioned canonical tracking/sto
 
 The [reproduction guide](docs/reproduction.md) separates public CPU contract tests from authorized competition-data and CUDA execution. It includes the supported CLI, input manifests, resource checks and saved-checkpoint verification commands.
 
-An executed learning notebook, Docker JupyterLab, dev container and hosted Kaggle walkthrough remain outstanding in [the delivery issue](https://github.com/cttsai1985/kaggle-alaska2-image-steganalysis/issues/5). Prediction provenance and offline recovery are recorded in [the consumer contract](docs/consumer-contract.md). The package does not establish a real ensemble improvement or a deployed detection service.
+The [executed learning notebook](notebooks/01-method-and-rerun.ipynb) combines both decision stories with a labeled CPU fixture that trains, reloads, exports and recovers a handoff. The locked native environment, Docker JupyterLab and dev container share the maintained package. Lab authentication and actual mount behavior have [measured readback](evidence/phase4/lab_validation.json). The [offline Kaggle entry](docs/kaggle.md) is provided with hosted execution explicitly unverified. Prediction provenance and offline recovery are recorded in [the consumer contract](docs/consumer-contract.md). No real ensemble improvement or deployed detection service is established.
 
 The maintained implementation is in `src/alaska2/`; experiment recipes are in `configs/`, aggregate evidence in `evidence/`, and contract tests in `tests/`. The original solution and attribution are preserved in [legacy/](legacy/README.md). The [readiness report](docs/phase1-readiness.md) and [package report](docs/phase2-package.md) retain the detailed engineering record.
 

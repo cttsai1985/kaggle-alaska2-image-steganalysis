@@ -132,3 +132,7 @@ dmypy.json
 input/
 outputs/
 *.parquet
+
+# Local client configuration, secrets and generated source metadata
+.local/
+source_revision.json
