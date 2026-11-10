@@ -7,7 +7,7 @@ Use the maintained package for the current workflow. The original source remains
 Use Python 3.12 and uv from the repository root:
 
 ```bash
-uv sync --locked
+uv sync --locked --group lab --group analysis
 CUDA_VISIBLE_DEVICES='' uv run --locked pytest -q -m 'not cuda'
 uv run --locked ruff check src tests tools
 uv run --locked ruff format --check src tests tools
@@ -55,7 +55,7 @@ The [fixed baseline specification](../evidence/phase2/baseline_spec.json) record
 
 The bounded-run wrapper is `tools/runs/bounded_run.sh CONFIG RUN_ID CAP_S [KEY=VALUE ...]`. It wraps training/evaluation in a timeout and attempts an independent verify only after successful training and saved predictions. It does not run the resource gate itself. Use an approved fresh run identity and budget; an existing output directory is refused. No additional training budget is implied by this guide.
 
-Resume uses `python -m alaska2 train --config CONFIG --resume RUN_DIR` and checks source, package, runtime, config, input and split provenance. The existing interrupted checkpoint belongs to its preserved recovery worktree. A new documentation commit changes Git provenance, so a resume from the latest checkout is not an equivalent execution. Never edit checkpoint provenance to bypass that rejection.
+Resume uses `python -m alaska2 train --config CONFIG --resume RUN_DIR` and checks source, package, runtime, config, input and split provenance. The interrupted checkpoint belongs to its sealed historical source capsule (Git revision plus the exact dirty-source patch and verified archive). The matching Python runtime is retained outside worktrees. Restore that source and its recorded environment for any authorized continuation. A new documentation commit changes Git provenance, so a resume from the latest checkout is not an equivalent execution. Never edit checkpoint provenance to bypass that rejection.
 
 ## Saved-model evaluation and verification
 
@@ -68,22 +68,13 @@ uv run --locked python -m alaska2 verify --predictions /path/to/predictions/vali
 
 These commands use the checkpoint's recorded configuration and identities. Runtime-only flags can change the data path, device, loader-worker count or evaluation batch size; they do not override the evaluation population. For the interrupted baseline, report the last completed checkpoint as an incomplete-run evaluation, never the declared completed baseline.
 
-`predict --checkpoint CHECKPOINT` produces test predictions in the package format, not a competition submission file. Submission schema/ID-order checks and ensemble provenance remain [phase-three work](https://github.com/cttsai1985/kaggle-alaska2-image-steganalysis/issues/4).
+`predict --checkpoint CHECKPOINT` produces test predictions in the package format, not a competition submission file. Use the verified export command below for submission schema/ID-order and producer-provenance checks.
 
-## Regenerate the interrupted-run aggregate
+## Historical run summaries
 
-From the repository root, with the private run directory available:
-
-```bash
-python3 -m tools.runs.run_evidence --run-dir /path/to/retained-run \
-  --out /path/to/baseline_interrupted.json
-```
-
-This tool uses only the standard library. It reads saved receipts, removes private paths and per-image rows, and refuses output if an absolute home path survives. The checked-in [aggregate](../evidence/phase2/baseline_interrupted.json) adds explanatory notes; the underlying fields come from those saved artifacts. Aggregation does not execute model inference or establish checkpoint validity by itself.
-
-## Execution environments still outstanding
-
-A learning notebook, Docker JupyterLab, dev container and portable offline Kaggle path have not been delivered. The original `legacy/docker/` files are historical source, not a verified current environment. Hosted execution, shared tracking/storage transfer and a release remain unverified for this model. [Delivery acceptance](https://github.com/cttsai1985/kaggle-alaska2-image-steganalysis/issues/5).
+The checked-in interrupted-run and failed-attempt summaries preserve the historical record. Their
+old sidecar-only collector has been retired: it could not establish current artifact validity.
+Use the bound checkpoint/prediction/verification collector below for any new evaluation evidence.
 
 ## Reproduce the verified incomplete-run fallback
 
@@ -126,3 +117,40 @@ uv run --locked python -m alaska2 deliver --bundle /path/to/bundle \
 The destination owns the claim and authoritative ledger; changing `--state` cannot change ownership. Recovery never kills another importer or retrains the model. It preserves failed attempts and verifies destination bytes before completion. The backend shown here is filesystem, not a claim of remote-service execution.
 
 The [real-model drill driver](../tools/runs/provenance_delivery.py) reproduces export, source audit, packaging and the controlled failure/recovery evidence from the original run and saved prediction directory. Give it private paths through `--data-root`, `--run-dir`, `--predictions-dir`, `--out-dir` and a redacted aggregate `--public-receipt`. Repeating a completed drill verifies and reuses it. [Consumer contract and limits](consumer-contract.md).
+
+## Executed learning notebook and locked Lab
+
+For native execution, `uv sync --locked --group lab --group analysis` creates the locked `.venv`.
+Open [the executed walkthrough](../notebooks/01-method-and-rerun.ipynb) or regenerate its outputs:
+
+```bash
+uv run --locked --group lab --group analysis python -m tools.notebooks.execute_walkthrough \
+  --artifacts /outside/repository/walkthrough --out /outside/repository/executed.ipynb
+```
+
+The default walkthrough uses aggregate real-model receipts and a synthetic CPU fixture. It requires
+no competition images or downloaded pretrained weights. Every fixture result is explicitly labeled.
+
+For Docker Lab, run from the source checkout:
+
+```bash
+python3 -m tools.lab up --output-dir /outside/repository/outputs
+# Optional authorized images: add --data-dir /absolute/existing/data
+# Optional device access: add --gpu (requires NVIDIA Container Toolkit and compatible driver)
+```
+
+Open `http://127.0.0.1:8894/lab` and paste the secret from `.local/jupyter_token` into the login form.
+The token stays in a mode-600 ignored file; it is not printed. Lab runs as your UID with read-only
+`/data`, writable `/outputs`, a source bind mount and loopback-only exposure. The image pins Python
+3.12.13 and installs uv 0.10.4 with locked dependencies. The default is CPU: requesting the GPU
+explicitly adds the device reservation. The retained P620 evidence uses its separately recorded CUDA
+image/runtime, not this notebook image. Container GPU access worked when native WSL CUDA did not.
+
+`python3 -m tools.lab down` stops this project's Lab. VS Code **Reopen in Container** uses the same
+Compose environment and `/opt/venv/bin/python`; direct VS Code attachment is unverified. Its
+initialization prepares safe empty data and external output directories. To keep custom mounts,
+prepare those again after initialization. Do not copy datasets into a checkout or worktree.
+
+See the [offline Kaggle guide](kaggle.md) for a portable source capsule. Hosted execution and remote
+service delivery remain unverified. Release publication is held until the maintained refactor,
+current-commit CI and independent review are complete.

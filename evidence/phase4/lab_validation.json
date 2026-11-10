@@ -1,0 +1,22 @@
+{
+  "authenticated_http": 200,
+  "data_read_only_actual_write_rejected": true,
+  "devcontainer_ide_attach": "unverified",
+  "gpu_requested": false,
+  "hosted_kaggle_execution": "unverified",
+  "image_id": "sha256:1af36fd2614a2d370b60d4eb1e9c9dec9a00c07deacc39148c0d866ef548cd1a",
+  "kind": "lab_validation",
+  "loopback_only": true,
+  "measurement_status": "MEASURED",
+  "outputs_write_readback": true,
+  "running_uid": "1000",
+  "source": {
+    "dirty": false,
+    "git_sha": "6ba9045dfc391da17303f6f3826852bb449f2266",
+    "maintained_sha256": "a3a2d3649c431065a624a57fc0f716f6dafdb68e38ba667a4d34ff7912d304d7",
+    "package_sha256": "75641cf596f542c8bd53c9d06b9ef0b023679a7116ef6d980596b10825c27bcd"
+  },
+  "token_printed": false,
+  "token_read_only": true,
+  "unauthenticated_http": 403
+}

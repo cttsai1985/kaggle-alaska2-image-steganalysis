@@ -1,0 +1,35 @@
+{
+  "ci": {
+    "conclusion": "success",
+    "cpu_tests_passed": 160,
+    "cuda_tests_deselected": 1,
+    "headSha": "5c507ffe17f1708fae04801383356373149042f2",
+    "log_sha256": "ee7e41f0a3741eeced2c386611e0dfa91a211cbcb8cfadacfbd5f24650115ea6",
+    "url": "https://github.com/cttsai1985/kaggle-alaska2-image-steganalysis/actions/runs/42729959567"
+  },
+  "hosted_kaggle_execution": "unverified",
+  "independent_model_reviews": [
+    {
+      "focus": "maintained package and migration completeness",
+      "remaining_findings": 0,
+      "scope_commit": "0b7213a7642df9aae6d8d717240729d45c181c74"
+    },
+    {
+      "focus": "environment, notebook publication and portable interpreter; final config/widget delta",
+      "remaining_findings": 0,
+      "scope_commit": "5c507ffe17f1708fae04801383356373149042f2"
+    }
+  ],
+  "kind": "reviewed_refactor_validation",
+  "legacy_policy": "archived original; no maintained runtime imports",
+  "maintained_package": "src/alaska2",
+  "measurement_status": "MEASURED",
+  "real_model_training_in_phase4": false,
+  "release_policy": "merged source only, after final-commit CI",
+  "visual_inspection": {
+    "executed_html": "05b66799c4f4a1922292d21642c603062005761defd6bc092eacf7e157ea55ff",
+    "fixture_and_limits_crop": "67c5c7f7c710ff52b7d838dac9f8cf81131b2e4eb1af3f29cc238244f7bcd752",
+    "missing_widget_warning": false,
+    "plot_crop": "9587c7198f09ed9d5e8965f9be44464ff61c05b3ee2a40ef028c1b0a726a8e58"
+  }
+}

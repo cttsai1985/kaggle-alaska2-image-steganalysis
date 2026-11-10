@@ -53,7 +53,9 @@ No dedicated outage-timing receipt or complete cross-attempt `wall.json` was rec
 | [Readiness #2](https://github.com/cttsai1985/kaggle-alaska2-image-steganalysis/issues/2) | Complete; merged in PR #6 | None for readiness. |
 | [Baseline #3](https://github.com/cttsai1985/kaggle-alaska2-image-steganalysis/issues/3) | Verified incomplete-run fallback, as permitted by acceptance | Intended training remains incomplete; do not relabel this result. |
 | [Ensemble/delivery #4](https://github.com/cttsai1985/kaggle-alaska2-image-steganalysis/issues/4) | Verified single-model provenance and filesystem recovery | Learned stacking and real ensemble gains remain deferred without full OOF evidence; remote services are unverified. |
-| [Walkthrough #5](https://github.com/cttsai1985/kaggle-alaska2-image-steganalysis/issues/5) | In progress | Executed notebook, container/dev environment, explicit hosted status, reviewed release. |
-| [Parent #1](https://github.com/cttsai1985/kaggle-alaska2-image-steganalysis/issues/1) | Open | Complete the remaining phase acceptance criteria. |
+| [Walkthrough #5](https://github.com/cttsai1985/kaggle-alaska2-image-steganalysis/issues/5) | Executed walkthrough and measured Lab isolation; portable entry executed locally without networking | Hosted Kaggle and direct IDE attachment remain unverified; release requires reviewed, merged source. |
+| [Parent #1](https://github.com/cttsai1985/kaggle-alaska2-image-steganalysis/issues/1) | Tracks the phase evidence above | Issue closeout requires merged phase delivery. |
 
 [Prediction/OOF audit, official sample ordering and controlled real-model transfer recovery](consumer-contract.md) · [Aggregate receipt](../evidence/phase3/provenance_delivery.json).
+
+The [executed walkthrough](../notebooks/01-method-and-rerun.ipynb) retains seven executed code cells, a cohort figure and an explicitly labeled CPU fixture. [Notebook execution](../evidence/phase4/notebook_execution.json), [actual Lab authentication/mount checks](../evidence/phase4/lab_validation.json) and [local offline-entry execution](../evidence/phase4/offline_entry.json) have separate receipts. These are engineering checks, not additional real-model evaluations.

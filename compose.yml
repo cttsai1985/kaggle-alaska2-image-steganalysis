@@ -1,0 +1,22 @@
+name: alaska2
+services:
+  lab:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: alaska2/lab:dev
+    pull_policy: never
+    init: true
+    working_dir: /workspace
+    shm_size: 2gb
+    cpus: 6
+    mem_limit: 24g
+    environment:
+      JUPYTER_RUNTIME_DIR: /tmp/alaska2-jupyter
+      ALASKA2_LAB_TOKEN_FILE: /run/secrets/alaska2_lab_token
+      ALASKA2_OUTPUT_ROOT: /outputs
+      GIT_OPTIONAL_LOCKS: "0"
+    volumes:
+      - type: bind
+        source: .
+        target: /workspace

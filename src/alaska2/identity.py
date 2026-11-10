@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import platform
+import re
 import subprocess
 from pathlib import Path
 
@@ -41,11 +43,34 @@ def git_source(repo: Path | None = None) -> dict:
         return out.stdout.strip() if out.returncode == 0 else None
 
     sha = run("rev-parse", "HEAD")
-    status = run("status", "--porcelain", "--untracked-files=no")
+    status = run("status", "--porcelain", "--untracked-files=normal")
+    package_sha = package_source_sha256()
+    build_source = repo / "source_revision.json"
+    if sha is None and build_source.is_file():
+        recorded = json.loads(build_source.read_text())
+        if (
+            set(recorded) != {"git_sha", "dirty", "package_sha256", "maintained_sha256"}
+            or not isinstance(recorded["dirty"], bool)
+            or not re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", recorded["git_sha"])
+            or not re.fullmatch(r"[0-9a-f]{64}", recorded["package_sha256"])
+            or not re.fullmatch(r"[0-9a-f]{64}", recorded["maintained_sha256"])
+        ):
+            raise ValueError("invalid image source-revision manifest")
+        return {
+            "git_sha": recorded["git_sha"],
+            "dirty": (
+                recorded["dirty"]
+                or package_sha != recorded["package_sha256"]
+                or maintained_source_sha256(repo) != recorded["maintained_sha256"]
+            ),
+            "package_sha256": package_sha,
+            "maintained_sha256": maintained_source_sha256(repo),
+        }
     return {
         "git_sha": sha,
         "dirty": bool(status) if status is not None else None,
-        "package_sha256": package_source_sha256(),
+        "package_sha256": package_sha,
+        "maintained_sha256": maintained_source_sha256(repo),
     }
 
 
@@ -57,6 +82,25 @@ def package_source_sha256(pkg: Path | None = None) -> str:
     pkg = pkg or Path(__file__).resolve().parent
     files = sorted(p for p in pkg.rglob("*.py") if "__pycache__" not in p.parts)
     lines = [f"{p.relative_to(pkg).as_posix()}\t{sha256_file(p)}" for p in files]
+    return hashlib.sha256("\n".join(lines).encode()).hexdigest()
+
+
+def maintained_source_sha256(root: Path) -> str:
+    """Bind executable tools, package, recipes, environment and notebook sources in standalone images."""
+    files = [
+        path
+        for folder in ("src", "tools", "configs", "docker", "notebooks")
+        for path in (root / folder).rglob("*")
+        if path.is_file()
+        and path.suffix in {".py", ".sh", ".toml", ".json", ".ipynb", ".yaml", ".yml"}
+        and "__pycache__" not in path.parts
+    ]
+    files += [
+        root / name
+        for name in ("pyproject.toml", "uv.lock", "Dockerfile", "compose.yml", "compose.gpu.yml")
+        if (root / name).is_file()
+    ]
+    lines = [f"{path.relative_to(root).as_posix()}\t{sha256_file(path)}" for path in sorted(set(files))]
     return hashlib.sha256("\n".join(lines).encode()).hexdigest()
 
 
