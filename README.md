@@ -1,49 +1,53 @@
 # ALASKA2: My Image Steganalysis Solution
 
-My solution to the [Kaggle ALASKA2 competition](https://www.kaggle.com/competitions/alaska2-image-steganalysis), by **Chia-Ta Tsai**. The task is to predict whether a JPEG contains a hidden message, even when it looks unchanged. The original solution trains image classifiers, combines predictions with test-time augmentation and stacking, and exports competition submissions.
+My solution to the [Kaggle ALASKA2 competition](https://www.kaggle.com/competitions/alaska2-image-steganalysis), by **Chia-Ta Tsai**. Steganography changes an image to carry a hidden message while leaving its visible subject intact. The [ALASKA2 challenge](https://www.kaggle.com/competitions/alaska2-image-steganalysis) asks for a probability that a JPEG contains embedded data. My historical solution combines EfficientNet and SE-ResNeXt predictions with augmentation and stacking; the maintained workflow provides a reloadable EfficientNet baseline and sample-ordered predictions.
 
+<!-- portfolio-results:start -->
 ## Results
 
-**MEASURED competition scores — weighted AUC ↑.** Public and private scores in each row come from the same historical submission.
+**Leaderboard scores — weighted AUC ↑.**
 
 | Model / submission | Public LB | Private LB | Public Top % |
-| --- | ---: | ---: | ---: |
-| Historical LightGBM stacker (2020-07-20) | 0.932 | 0.916 | 7.31% |
-| Historical TTA/LightGBM stacker (2020-07-18) | 0.928 | 0.917 | 10.96% |
-| Historical rank-averaged ensemble (2020-07-20) | 0.930 | 0.916 | 9.04% |
-| Maintained EfficientNet baseline | Not submitted | Not submitted | Not applicable |
+|---|---:|---:|---:|
+| Historical LightGBM stacker (2020-07-20) | 0.932 | 0.916 | **7.31%** |
+| Historical TTA/LightGBM stacker (2020-07-18) | 0.928 | 0.917 | **10.96%** |
+| Historical rank-averaged ensemble (2020-07-20) | 0.930 | 0.916 | **9.04%** |
+| Maintained EfficientNet-B0 (single holdout) | Not submitted | Not submitted | Not applicable |
 
-Public Top % is a **MEASURED score-equivalent comparison against the 2026-11-10 public leaderboard snapshot**, using the first tied position; it is not an awarded final rank. Private rank is unavailable. [Paired submission records](docs/historical-submissions.json) · [Reference population, ties and calculation](docs/leaderboard-context.json).
+Public Top % uses the **2026-11-10 public leaderboard snapshot** (score-equivalent comparison, not an awarded final rank). [Detailed results](docs/results.md) · [Reference ranks, ties and calculation](docs/leaderboard-context.json).
 
-The maintained single-model baseline reaches **MEASURED holdout weighted AUC 0.83540** after four completed epochs of a planned five. This is a separate, incomplete-run fallback; it does not reproduce the historical ensemble’s leaderboard score. [Full results and limitations](docs/results.md).
+Private Top % is unavailable without a matched private leaderboard; OOF/holdout results have no leaderboard percentile.
+<!-- portfolio-results:end -->
 
-## How my solution works
+## Why the probability of any embedding method matters
 
-1. **Split by source image.** Keep each Cover image and its JMiPOD, JUNIWARD and UERD variants together, so shared content cannot cross the training/validation boundary.
-2. **Train image classifiers.** Predict the four classes with pretrained convolutional models. Flips and right-angle rotations preserve the pixel grid without interpolation.
-3. **Predict hidden-message probability.** Convert four-class predictions to `1 - P(Cover)`. The historical workflow also combines cached predictions using augmentation and stackers.
-4. **Export predictions.** Produce a probability for each test image in the competition sample order.
+A file can contain a message from JMiPOD, JUNIWARD or UERD. The target combines those possibilities, so the solution uses `1 − P(Cover)` from its four-class model.
 
-The [original source](legacy/README.md) retains my training, inference, stacking and submission code. The maintained implementation lives in `src/alaska2/`, with recipes in `configs/` and regression checks in `tests/`. Historical stacking results belong to the recorded submissions; no new ensemble improvement is claimed.
+**MEASURED controlled comparison:** on the same saved checkpoint and complete family holdout, that readout reaches **0.83540 weighted AUC**. Using only the largest stego-class probability reaches **0.76748**, a change of **−0.06792**. The checkpoint, JPEG processing, rows and labels are fixed; the ranking actually changes. The loss appears in every recorded quality and embedding-method comparison. Retain the union-probability readout for this model. [Comparison, variation and remaining question](docs/modeling-study.md).
 
-## What the current evaluation shows
+## Which images remain difficult?
 
-**MEASURED on the retained family holdout:** Cover-versus-JUNIWARD weighted AUC is **0.61846**, compared with **0.90974** for JMiPOD and **0.93095** for UERD. The pooled result hides a substantial weakness on JUNIWARD.
+**MEASURED:** JUNIWARD accounts for **2,179 of the 2,250 hardest stego predictions** under the fixed confidence-error diagnostic. Its Cover-versus-method weighted AUC is **0.61846**, compared with **0.90974** for JMiPOD and **0.93095** for UERD. Combining class probabilities helps the overall ranking and leaves a substantial method-specific weakness.
 
-**MEASURED quality-cohort weighted AUC:** **0.86666 / 0.84809 / 0.76598** for JPEG quality **75 / 90 / 95**. These cohorts contain different source images, so the gap does not establish that compression causes the difference.
+The quality-95 cohort has the weakest weighted AUC (**0.76598**), yet is underrepresented among the most extreme confidence errors. Ranking separation and confidence failures identify different problems. Quality cohorts also contain different source images, so these observations do not prove that compression causes the gap. [Hard-case rule, competing explanations and next experiment](docs/error-analysis.md).
 
 ![Measured holdout performance across JPEG-quality cohorts and embedding methods](docs/figures/quality-and-method.png)
 
-The original source-image split is preserved, with additional byte-identity checks. Independent checkpoint reload reproduces the saved holdout and test predictions. These checks support the retained baseline’s reproducibility; they do not establish a complete historical OOF stack or a completed modern training recipe. [Evaluation protocol, operating points and recovery limits](docs/results.md).
+## Keep the source image out of its own validation set
 
-## Run the solution
+Cover and its embedded variants share image content. The original solution grouped source images before expanding variants; the maintained pipeline preserves that boundary and also checks byte identity across roles. **MEASURED:** the retained holdout has no source families or byte-identical groups crossing the fit/validation boundary. A diagnostic file split exposes siblings of **59,460 of 60,000** validation files to fitting; no accuracy gain from that diagnostic is claimed. [Evaluation protocol and limits](docs/results.md).
 
-- [Executed walkthrough](notebooks/01-method-and-rerun.ipynb): method, evaluation and a labeled CPU example.
-- [Reproduction guide](docs/reproduction.md): locked local environment, Docker/Jupyter/dev container, competition inputs, training and saved-checkpoint prediction.
-- [Offline Kaggle entry](docs/kaggle.md): packaging and local execution; hosted execution remains unverified.
-- [Prediction and delivery contract](docs/consumer-contract.md): sample ordering, provenance and recoverable filesystem handoff.
+## From a JPEG to a prediction
 
-Competition data and checkpoints are not bundled. Public synthetic fixtures verify execution contracts; their outputs are not competition results. The [engineering reports](docs/phase2-package.md) retain the implementation details, while [problem and value](docs/problem-and-value.md) explains the detection task and its limits.
+The predictor decodes the native JPEG, retains its image dimensions, applies the recorded normalization and produces four class probabilities. Its application output is the probability of any embedded message. The same class order, preprocessing and checkpoint travel with prediction/export. The historical stacking records belong to their own submissions; the retained baseline does not inherit their leaderboard scores.
+
+The maintained baseline is an **incomplete-run fallback with four completed epochs of a declared five-epoch run**, evaluated on a complete single family holdout. Independent reload reconstructs its full holdout and test predictions. Its **0.83540 holdout weighted AUC** has no leaderboard percentile and cannot be compared directly with a scored competition submission. [Results, saved-model interface and limitations](docs/results.md) · [Prediction contract](docs/serving.md).
+
+## Reproduce the result
+
+Start with the [executed walkthrough](notebooks/01-method-and-rerun.ipynb) for the problem, results and modeling decisions. The [runbook](docs/reproduction.md) contains local, Docker/Jupyter/dev-container and authorized competition-input commands. The [offline Kaggle path](docs/kaggle.md) records its actual hosted-execution status. Public CPU fixtures test contracts and remain explicitly labeled.
+
+The [problem/value discussion](docs/problem-and-value.md) separates detection quality from a prospective analyst workflow. [Evidence and requirements](docs/requirements-audit.md) retain the completed checks and open production work. Code is in `src/alaska2/`; original source and attribution remain in [legacy/](legacy/README.md).
 
 ## License
 
