@@ -41,7 +41,7 @@ Cover and its embedded variants share image content. The original solution group
 
 The predictor decodes the native JPEG, retains its image dimensions, applies the recorded normalization and produces four class probabilities. Its application output is the probability of any embedded message. The same class order, preprocessing and checkpoint travel with prediction/export. The historical stacking records belong to their own submissions; the retained baseline does not inherit their leaderboard scores.
 
-The maintained baseline is a **four-completed-epoch fallback from a declared five-epoch run**, evaluated on a complete single family holdout. Independent reload reconstructs its full holdout and test predictions. Its **0.83540 holdout weighted AUC** has no leaderboard percentile and cannot be compared directly with a scored competition submission. [Results, saved-model interface and limitations](docs/results.md) · [Prediction contract](docs/serving.md).
+The maintained baseline is an **incomplete-run fallback with four completed epochs of a declared five-epoch run**, evaluated on a complete single family holdout. Independent reload reconstructs its full holdout and test predictions. Its **0.83540 holdout weighted AUC** has no leaderboard percentile and cannot be compared directly with a scored competition submission. [Results, saved-model interface and limitations](docs/results.md) · [Prediction contract](docs/serving.md).
 
 ## Reproduce the result
 
