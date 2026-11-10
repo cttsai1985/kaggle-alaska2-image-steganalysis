@@ -1,26 +1,20 @@
-# Finish the executed ALASKA2 walkthrough and delivery
+# Align ALASKA2 with the competition portfolio
 
-Standard practice: one maintained package across CLI, notebook and container, with an executed teaching artifact and a release built from merged source. ALASKA2 differs because the retained real model is an explicitly incomplete-run fallback; preserve that scope everywhere and do not claim hosted Kaggle execution without evidence.
-
-Operator update: hold release until the maintained refactor is complete, independently reviewed and verified. Archived original code is retained for attribution; deferred learned stacking is a research limitation, not a second maintained implementation.
+Standard practice: a solution-first narrative with paired leaderboard scores, source-backed Top %, a controlled modeling comparison, hard-case analysis and a usable prediction path. We differ because ALASKA2 already has an evaluated incomplete-run fallback and must preserve that scope while adopting the existing portfolio convention.
 
 ## Scope
+- Presentation/evidence: README.md; docs/{results,problem-and-value,modeling-study,error-analysis,requirements-audit,portfolio-standard,serving,reproduction}.md; docs/{leaderboard-context,historical-submissions,public-profile,modeling-study,error-analysis,canary-validation}.json; docs/figures/; notebooks/01-method-and-rerun.ipynb.
+- Reusable analysis: tools/analysis/{modeling_study,error_analysis}.py; tools/notebooks/build_walkthrough.py; scripts/{check_portfolio,analyze_hard_cases}.py (thin/shared entry points only).
+- Actual model interface: src/alaska2/serving.py; tests/test_serving.py; tests/test_modeling_study.py; tests/test_portfolio.py.
+- Environment/release: pyproject.toml, uv.lock, src/alaska2/__init__.py, Dockerfile, .github/workflows/ci.yml.
+- Metadata after merge: rename GitHub repository to kaggle-alaska2-solution, update local origin and reviewed public description; retain local checkout/mount/service identities. Publish a corrected canary from merged source and verify downloaded assets. Preserve previous release bytes/history.
 
-- Environment: `.gitignore`, `.dockerignore`, `pyproject.toml`, `uv.lock`, `Dockerfile`, `compose.yml`, `compose.gpu.yml`, `docker/jupyter_server_config.py`, `.devcontainer/devcontainer.json`, `tools/lab.py`.
-- Walkthrough: `tools/fixtures.py`, `tests/conftest.py`, `tools/notebooks/build_walkthrough.py`, `tools/notebooks/execute_walkthrough.py`, `notebooks/01-method-and-rerun.ipynb`, `notebooks/kaggle/rerun.ipynb`.
-- Portable delivery: `tools/package_offline.py`, source/runtime metadata helpers only if a failing behavior test proves missing provenance in the standalone image.
-- Gates: `tests/test_lab.py`, `tests/test_notebook.py`, `tests/test_release.py`, `.github/workflows/ci.yml`; extend existing contract tests only for directly changed source provenance.
-- Documentation: `README.md`, `docs/reproduction.md`, `docs/results.md`, `docs/kaggle.md`, `docs/consumer-contract.md`; retain historical reports.
-- Evidence: `evidence/phase4/notebook_execution.json`, `lab_validation.json`, `offline_bundle.json`, aggregate walkthrough figure(s). Release assets/checksums are produced outside Git from merged source.
+## Sequence and proof
+1. Recover paired historical submissions through authenticated read-only Kaggle API. Use dated public leaderboard export, exact Decimal comparisons, unique scored teams and tie intervals; never assign a percentile to holdout/private populations.
+2. Compare fixed union-of-stego probability vs maximum stego-class probability on identical saved holdout predictions. Declare before measuring; no refit, learned weights, threshold tuning, row removal or default change. Analyze fixed hard cohorts and input→representation→prediction failures with aggregate-only output.
+3. Put leaderboard table immediately after short opening, then modeling decision/error insight and inference. Keep hardware/provenance mechanics in runbook. Map all R01–R26 honestly; preserve open production requirements.
+4. Add and verify actual model→MLflow package→fresh-workspace HTTP parity on private real inputs, with invalid-request rejection and cleanup; no shared-service deployment or retraining.
+5. Adopt shared scaffold/checker from infra; execute notebook and relevant tests, obtain review and current-source CI, merge, rename coherently, release and read back artifacts. Remove only merged/unoccupied branches and worktrees.
 
-## Steps and verification
-
-1. Add locked optional notebook/release groups; use the existing shared caches or container layers, never a worktree data/artifact copy.
-2. Build a pinned Python container and loopback-only Lab with nonempty token auth, read-only data, writable outputs, explicit optional GPU access. Run the real HTTP auth and mount checks.
-3. Generate and execute the notebook top-to-bottom: measured family-split/model-cohort story, actual retained-model reconstruction and transfer story, then a CPU fixture train/evaluate/verify using the maintained package. Inspect saved figures and outputs.
-4. Package a wheel/source/offline Kaggle path with identity/checksum checks. Hosted execution remains explicitly unverified unless it actually runs.
-5. Run CPU CI including analysis/notebook contracts; obtain independent review, merge, then build source/lock/evidence/checksum release assets from clean master. Close #5 with live release evidence, then reconcile/close parent #1.
-
-## Risks and limits
-
-No new training search or Kaggle submission. Existing real-model results and filesystem-only delivery limits remain. Never expose Lab beyond loopback, publish private rows/checkpoints/tokens, change Docker credentials, deploy shared services or imply a production detector. Verify installed/runtime artifacts rather than configuration alone.
+## Boundaries
+Keep raw rows/images/checkpoints/credentials/private logs outside Git. Preserve original source, weak results, incomplete training and historical receipts. No new Kaggle submission or training/model search. CPU analysis and bounded private-input inference only; shared live services/volumes/ports/credentials remain untouched.
