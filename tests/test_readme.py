@@ -48,9 +48,7 @@ def test_readme_historical_scores_match_paired_records_and_reference():
         assert item["tied_reference_teams"] == tied
         percent = Decimal(100) * (better + 1) / count
         assert Decimal(item["top_percent"]) == percent
-        expected = (
-            f"| {item['label']} | {row['publicScore']} | {row['privateScore']} | {percent:.2f}% |"
-        )
+        expected = f"| {item['label']} | {row['publicScore']} | {row['privateScore']} | {percent:.2f}% |"
         assert expected in text
         assert f"public {row['publicScore']} / private {row['privateScore']}" in details
 
